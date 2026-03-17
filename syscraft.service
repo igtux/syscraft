@@ -1,0 +1,25 @@
+[Unit]
+Description=SysCraft - Infrastructure Source of Truth
+After=network-online.target container-checkmk.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+ExecStartPre=-/usr/bin/podman stop syscraft
+ExecStartPre=-/usr/bin/podman rm syscraft
+ExecStart=/usr/bin/podman run \
+  --name syscraft \
+  --rm \
+  -p 4000:4000 \
+  -v /opt/syscraft/data:/app/data:Z \
+  --env-file /home/agents/rh-sat/syscraft/.env \
+  --network host \
+  localhost/syscraft:latest
+ExecStop=/usr/bin/podman stop syscraft
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

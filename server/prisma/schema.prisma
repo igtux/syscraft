@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  role         String   @default("user") // admin, user
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  auditLogs  AuditLog[]
+  hostGroups UserHostGroup[]
+}
+
+model UserHostGroup {
+  id      Int @id @default(autoincrement())
+  userId  Int
+  groupId Int
+
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group HostGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+}
+
+model Host {
+  id              Int      @id @default(autoincrement())
+  fqdn            String   @unique
+  ip              String   @default("")
+  os              String   @default("")
+  arch            String   @default("")
+  status          String   @default("new") // active, partial, stale, new, decommissioning
+  complianceScore Float    @default(0)
+  osCategory      String   @default("unknown") // linux, windows, appliance, unknown
+  lastPingAt      DateTime?
+  lastPingSuccess Boolean  @default(false)
+  macAddress      String   @default("")
+  lastSeen        DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  sources      HostSource[]
+  agentStatuses AgentStatus[]
+  groupMemberships HostGroupMember[]
+  recommendations Recommendation[]
+}
+
+model HostSource {
+  id         Int      @id @default(autoincrement())
+  hostFqdn   String
+  source     String // satellite, checkmk, dns
+  sourceId   String   @default("")
+  rawData    String   @default("{}") // JSON stored as text for SQLite
+  lastSynced DateTime @default(now())
+
+  host Host @relation(fields: [hostFqdn], references: [fqdn], onDelete: Cascade)
+
+  @@unique([hostFqdn, source])
+}
+
+model AgentBaseline {
+  id               Int      @id @default(autoincrement())
+  name             String   @unique
+  packageName      String
+  description      String   @default("")
+  requiredForGroups String  @default("[\"all\"]") // JSON array stored as text
+  enabled          Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model AgentStatus {
+  id          Int      @id @default(autoincrement())
+  hostFqdn    String
+  agentName   String
+  installed   Boolean  @default(false)
+  running     Boolean  @default(false)
+  version     String?
+  lastChecked DateTime @default(now())
+
+  host Host @relation(fields: [hostFqdn], references: [fqdn], onDelete: Cascade)
+
+  @@unique([hostFqdn, agentName])
+}
+
+model SyncLog {
+  id           Int       @id @default(autoincrement())
+  source       String
+  status       String // success, failure, partial
+  hostsFound   Int       @default(0)
+  hostsUpdated Int       @default(0)
+  errors       String    @default("[]") // JSON array stored as text
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  action    String
+  target    String   @default("")
+  details   String   @default("{}") // JSON stored as text
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Setting {
+  id          Int    @id @default(autoincrement())
+  key         String @unique
+  value       String
+  description String @default("")
+}
+
+model Recommendation {
+  id            Int      @id @default(autoincrement())
+  hostFqdn      String
+  type          String   // register_satellite, add_checkmk, remove_checkmk, remove_satellite, install_agent, cleanup_dead, classify_os, ip_reuse, add_dns, remove_dns, fix_dns_reverse, fix_dns_mismatch
+  severity      String   // critical, high, medium, low, info
+  description   String
+  systemTarget  String   // satellite, checkmk, dns, host, admin
+  commands      String   @default("[]") // JSON array of {label, command, runFrom}
+  status        String   @default("open") // open, dismissed, resolved
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  host Host @relation(fields: [hostFqdn], references: [fqdn], onDelete: Cascade)
+
+  @@index([hostFqdn])
+  @@index([type])
+  @@index([status])
+}
+
+model HostGroup {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String   @default("")
+  system      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members HostGroupMember[]
+  users   UserHostGroup[]
+}
+
+model HostGroupMember {
+  id        Int    @id @default(autoincrement())
+  groupId   Int
+  hostFqdn  String
+
+  group HostGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  host  Host      @relation(fields: [hostFqdn], references: [fqdn], onDelete: Cascade)
+
+  @@unique([groupId, hostFqdn])
+}

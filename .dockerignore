@@ -1,0 +1,10 @@
+node_modules
+.git
+*.md
+.env
+.env.*
+!.env.example
+server/.env
+server/dist
+client/dist
+data
