@@ -80,17 +80,18 @@ class BaselineService {
     // Gather all evidence sources
     const sources = await prisma.hostSource.findMany({
       where: { hostFqdn: fqdn },
+      include: { dataSource: true },
     });
 
-    const hasSatelliteSource = sources.some((s) => s.source === 'satellite');
-    const checkmkSource = sources.find((s) => s.source === 'checkmk');
+    const hasSatelliteSource = sources.some((s) => s.dataSource.adapter === 'satellite');
+    const checkmkSource = sources.find((s) => s.dataSource.adapter === 'checkmk');
 
     // 1. Try Satellite packages API
-    const satelliteSource = sources.find((s) => s.source === 'satellite');
+    const satelliteSource = sources.find((s) => s.dataSource.adapter === 'satellite');
     let installedPackages: Array<{ name: string; version: string; release: string; arch: string }> = [];
 
     if (satelliteSource) {
-      const rawData = JSON.parse(satelliteSource.rawData || '{}');
+      const rawData = satelliteSource.rawData as Record<string, any>;
       const hostId = rawData.hostId || satelliteSource.sourceId;
       if (hostId) {
         installedPackages = await satelliteService.fetchHostPackages(hostId);
@@ -103,12 +104,10 @@ class BaselineService {
     let checkmkUp = false;
     let checkmkServiceCount = 0;
     if (checkmkSource) {
-      try {
-        const cmkData = JSON.parse(checkmkSource.rawData || '{}');
-        checkmkUp = cmkData.status === 'UP';
-        checkmkServiceCount = (cmkData.services?.ok || 0) + (cmkData.services?.warn || 0) +
-          (cmkData.services?.crit || 0);
-      } catch { /* ignore */ }
+      const cmkData = checkmkSource.rawData as Record<string, any>;
+      checkmkUp = cmkData.status === 'UP';
+      checkmkServiceCount = (cmkData.services?.ok || 0) + (cmkData.services?.warn || 0) +
+        (cmkData.services?.crit || 0);
     }
 
     for (const baseline of baselines) {
@@ -142,13 +141,11 @@ class BaselineService {
           case 'subscription-manager':
             // Infer installed only if the host actually registered (has content facet in Satellite)
             if (satelliteSource) {
-              try {
-                const satData = JSON.parse(satelliteSource.rawData || '{}');
-                if (satData.registered) {
-                  installed = true;
-                  running = true;
-                }
-              } catch { /* ignore */ }
+              const satData = satelliteSource.rawData as Record<string, any>;
+              if (satData.registered) {
+                installed = true;
+                running = true;
+              }
             }
             break;
 

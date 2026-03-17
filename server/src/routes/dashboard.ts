@@ -29,13 +29,13 @@ router.get('/', authenticate, async (_req: Request, res: Response) => {
 
     // Host compliance breakdown: hosts in both systems vs partial vs neither
     const allHosts = await prisma.host.findMany({
-      include: { sources: { select: { source: true } } },
+      include: { sources: { include: { dataSource: { select: { adapter: true } } } } },
     });
     let hostsBothSystems = 0;
     let hostsOnlyOne = 0;
     let hostsNoSystem = 0;
     for (const h of allHosts) {
-      const srcs = new Set(h.sources.map((s: { source: string }) => s.source));
+      const srcs = new Set(h.sources.map((s: any) => (s.dataSource as any).adapter));
       const hasSat = srcs.has('satellite');
       const hasCmk = srcs.has('checkmk');
       if (hasSat && hasCmk) hostsBothSystems++;
@@ -72,7 +72,7 @@ router.get('/', authenticate, async (_req: Request, res: Response) => {
       id: log.id,
       action: log.action,
       target: log.target,
-      details: JSON.parse(log.details || '{}'),
+      details: (log.details || {}) as Record<string, any>,
       createdAt: log.createdAt.toISOString(),
       username: log.user?.username || null,
     }));
@@ -218,7 +218,7 @@ async function getSystemStatuses(): Promise<SystemStatus[]> {
 
       dnsConnected = await dnsService.testConnection();
       if (dnsConnected) {
-        dnsHostCount = await prisma.hostSource.count({ where: { source: 'dns' } });
+        dnsHostCount = await prisma.hostSource.count({ where: { dataSource: { adapter: 'dns' } } });
       }
     } catch (err) {
       dnsError = (err as Error).message;

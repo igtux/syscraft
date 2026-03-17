@@ -26,7 +26,7 @@ router.post(
           userId: req.user!.id,
           action: 'manual_sync_triggered',
           target: 'system',
-          details: JSON.stringify({ triggeredBy: req.user!.username }),
+          details: { triggeredBy: req.user!.username },
         },
       });
 
@@ -76,7 +76,7 @@ router.get('/status', authenticate, async (_req: Request, res: Response) => {
             status: lastSync.status,
             hostsFound: lastSync.hostsFound,
             hostsUpdated: lastSync.hostsUpdated,
-            errors: JSON.parse(lastSync.errors || '[]'),
+            errors: (lastSync.errors || []) as any,
             startedAt: lastSync.startedAt.toISOString(),
             completedAt: lastSync.completedAt?.toISOString() || null,
           }
@@ -101,7 +101,7 @@ router.get('/history', authenticate, async (req: Request, res: Response) => {
       status: log.status,
       hostsFound: log.hostsFound,
       hostsUpdated: log.hostsUpdated,
-      errors: JSON.parse(log.errors || '[]'),
+      errors: (log.errors || []) as any,
       startedAt: log.startedAt.toISOString(),
       completedAt: log.completedAt?.toISOString() || null,
     }));

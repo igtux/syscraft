@@ -33,18 +33,15 @@ FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# Create data directory and install ping utility for liveness checks
-RUN mkdir -p /app/data
+# Install ping utility for liveness checks
 RUN apk add --no-cache iputils
 
 # Copy server package files and install production deps only
 COPY server/package.json server/package-lock.json* ./server/
 RUN cd server && npm install --omit=dev
 
-# Copy Prisma schema (needed for db push at startup)
+# Copy Prisma schema and generate client against production node_modules
 COPY --from=build /app/server/prisma ./server/prisma
-
-# Re-generate Prisma client against production node_modules
 RUN cd server && npx prisma generate
 
 # Copy built server
@@ -60,5 +57,5 @@ WORKDIR /app/server
 ENV NODE_ENV=production
 EXPOSE 4000
 
-# Start: run migrations then start the server
+# Start: push schema to PostgreSQL then start the server
 CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/index.js"]

@@ -17,11 +17,24 @@ import {
   Layers,
   ClipboardCheck,
   Activity,
+  Database,
+  Plug,
+  Trash2,
+  XCircle,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
 import Spinner from '@/components/ui/Spinner';
-import { getSettings, updateSettings, type SettingEntry } from '@/lib/api';
+import { cn } from '@/lib/utils';
+import {
+  getSettings,
+  updateSettings,
+  getDataSources,
+  testDataSource,
+  updateDataSource,
+  type SettingEntry,
+  type DataSourceEntry,
+} from '@/lib/api';
 
 interface SettingsForm {
   satellite_url: string;
@@ -106,6 +119,98 @@ function PasswordField({
   );
 }
 
+function DataSourcesCard() {
+  const queryClient = useQueryClient();
+  const [testingId, setTestingId] = useState<number | null>(null);
+  const [testResult, setTestResult] = useState<{ id: number; connected: boolean; error: string | null } | null>(null);
+
+  const { data: sourcesResp } = useQuery({
+    queryKey: ['dataSources'],
+    queryFn: getDataSources,
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => updateDataSource(id, { enabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['dataSources'] }),
+  });
+
+  const handleTest = async (id: number) => {
+    setTestingId(id);
+    setTestResult(null);
+    try {
+      const result = await testDataSource(id);
+      setTestResult({ id, connected: result.connected, error: result.error });
+    } catch {
+      setTestResult({ id, connected: false, error: 'Test failed' });
+    }
+    setTestingId(null);
+  };
+
+  const sources = sourcesResp?.data ?? [];
+
+  return (
+    <Card title="Data Sources" subtitle="Connected infrastructure systems">
+      <div className="space-y-3">
+        {sources.map((src) => (
+          <div key={src.id} className={cn(
+            'flex items-center justify-between p-4 rounded-lg border transition-colors',
+            src.enabled ? 'bg-slate-700/20 border-slate-700/50' : 'bg-slate-800/50 border-slate-700/30 opacity-60'
+          )}>
+            <div className="flex items-center gap-3">
+              <div className={cn('p-2 rounded-lg', src.enabled ? 'bg-blue-500/20' : 'bg-slate-700')}>
+                <Database className={cn('w-5 h-5', src.enabled ? 'text-blue-400' : 'text-slate-500')} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-white">{src.name}</p>
+                  <span className="text-[10px] px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded font-mono">{src.adapter}</span>
+                </div>
+                <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
+                  <span>{src.hostCount} hosts</span>
+                  <span>{src.lastSyncStatus === 'never' ? 'Never synced' : `Last: ${src.lastSyncStatus}`}</span>
+                  {src.capabilities.length > 0 && (
+                    <span>{src.capabilities.join(', ')}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {testResult?.id === src.id && (
+                <span className={cn('text-xs', testResult.connected ? 'text-green-400' : 'text-red-400')}>
+                  {testResult.connected ? 'Connected' : testResult.error || 'Failed'}
+                </span>
+              )}
+              <button
+                onClick={() => handleTest(src.id)}
+                disabled={testingId === src.id}
+                className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
+                title="Test connection"
+              >
+                {testingId === src.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plug className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={() => toggleMut.mutate({ id: src.id, enabled: !src.enabled })}
+                className={cn(
+                  'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
+                  src.enabled ? 'bg-blue-600' : 'bg-slate-600'
+                )}
+              >
+                <span className={cn(
+                  'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+                  src.enabled ? 'translate-x-4.5' : 'translate-x-0.5'
+                )} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {sources.length === 0 && (
+          <p className="text-sm text-slate-500 text-center py-4">No data sources configured.</p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export default function Settings() {
   const queryClient = useQueryClient();
 
@@ -184,6 +289,9 @@ export default function Settings() {
       <Header title="Settings" subtitle="System configuration" />
 
       <div className="p-6 space-y-6 max-w-4xl">
+        {/* Data Sources */}
+        <DataSourcesCard />
+
         {/* Satellite Connection */}
         <Card title="Red Hat Satellite" subtitle="Satellite API connection and credentials">
           <div className="space-y-4">

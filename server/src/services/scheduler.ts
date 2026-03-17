@@ -11,6 +11,13 @@ import type { SyncResult } from '../types/index.js';
 
 const prisma = new PrismaClient();
 
+/** Map of adapter key -> resolved DataSource id (populated at the start of each sync) */
+interface DataSourceMap {
+  satellite?: number;
+  checkmk?: number;
+  dns?: number;
+}
+
 class SchedulerService {
   private cronJob: cron.ScheduledTask | null = null;
   private syncInProgress = false;
@@ -76,16 +83,28 @@ class SchedulerService {
     const results: SyncResult[] = [];
 
     try {
+      // Look up DataSource records by adapter key so we can set dataSourceId on
+      // HostSource and SyncLog rows.
+      const dataSources = await prisma.dataSource.findMany({
+        where: { adapter: { in: ['satellite', 'checkmk', 'dns'] } },
+      });
+      const dsMap: DataSourceMap = {};
+      for (const ds of dataSources) {
+        if (ds.adapter === 'satellite') dsMap.satellite = ds.id;
+        else if (ds.adapter === 'checkmk') dsMap.checkmk = ds.id;
+        else if (ds.adapter === 'dns') dsMap.dns = ds.id;
+      }
+
       // Sync from Satellite
-      const satResult = await this.syncSatellite();
+      const satResult = await this.syncSatellite(dsMap.satellite);
       results.push(satResult);
 
       // Sync from Checkmk
-      const cmkResult = await this.syncCheckmk();
+      const cmkResult = await this.syncCheckmk(dsMap.checkmk);
       results.push(cmkResult);
 
       // Sync DNS (if enabled)
-      const dnsResult = await this.syncDns();
+      const dnsResult = await this.syncDns(dsMap.dns);
       if (dnsResult) {
         results.push(dnsResult);
       }
@@ -156,7 +175,7 @@ class SchedulerService {
       }
       console.log(`[SysCraft] Compliance checks complete for ${allHosts.length} hosts`);
 
-      // Log audit event
+      // Log audit event — details is Json, pass object directly
       const auditDetails: Record<string, unknown> = {
         satellite: { hostsFound: satResult.hostsFound, hostsUpdated: satResult.hostsUpdated },
         checkmk: { hostsFound: cmkResult.hostsFound, hostsUpdated: cmkResult.hostsUpdated },
@@ -169,7 +188,7 @@ class SchedulerService {
         data: {
           action: 'sync_completed',
           target: 'system',
-          details: JSON.stringify(auditDetails),
+          details: auditDetails as any,
         },
       });
 
@@ -182,11 +201,12 @@ class SchedulerService {
     }
   }
 
-  private async syncSatellite(): Promise<SyncResult> {
+  private async syncSatellite(dataSourceId?: number): Promise<SyncResult> {
     const startTime = Date.now();
     const syncLog = await prisma.syncLog.create({
       data: {
         source: 'satellite',
+        dataSourceId: dataSourceId ?? null,
         status: 'running',
         startedAt: new Date(),
       },
@@ -241,25 +261,38 @@ class SchedulerService {
             },
           });
 
-          // Upsert host source
-          const sourceId = satHost?.hostId ? String(satHost.hostId) : fqdn;
-          await prisma.hostSource.upsert({
-            where: {
-              hostFqdn_source: { hostFqdn: fqdn, source: 'satellite' },
-            },
-            update: {
-              sourceId,
-              rawData: JSON.stringify(satHost || entry.raw),
-              lastSynced: new Date(),
-            },
-            create: {
-              hostFqdn: fqdn,
-              source: 'satellite',
-              sourceId,
-              rawData: JSON.stringify(satHost || entry.raw),
-              lastSynced: new Date(),
-            },
-          });
+          // Upsert host source — rawData and normalizedData are Json fields, pass objects directly
+          if (dataSourceId != null) {
+            const sourceId = satHost?.hostId ? String(satHost.hostId) : fqdn;
+            const rawData = satHost || entry.raw || {};
+            const normalizedData = {
+              ip: ip || '',
+              os: os,
+              arch: arch,
+              mac: macAddress,
+              status: satHost?.registered ? 'registered' : 'unregistered',
+              lastCheckin: satHost?.lastCheckin || null,
+            };
+            await prisma.hostSource.upsert({
+              where: {
+                hostFqdn_dataSourceId: { hostFqdn: fqdn, dataSourceId },
+              },
+              update: {
+                sourceId,
+                rawData,
+                normalizedData,
+                lastSynced: new Date(),
+              },
+              create: {
+                hostFqdn: fqdn,
+                dataSourceId,
+                sourceId,
+                rawData,
+                normalizedData,
+                lastSynced: new Date(),
+              },
+            });
+          }
 
           hostsUpdated++;
         } catch (hostError) {
@@ -271,16 +304,28 @@ class SchedulerService {
 
       const duration = Date.now() - startTime;
 
+      // errors is Json, pass array directly
       await prisma.syncLog.update({
         where: { id: syncLog.id },
         data: {
           status: errors.length > 0 ? 'partial' : 'success',
           hostsFound,
           hostsUpdated,
-          errors: JSON.stringify(errors),
+          errors,
           completedAt: new Date(),
         },
       });
+
+      // Update DataSource lastSync metadata
+      if (dataSourceId != null) {
+        await prisma.dataSource.update({
+          where: { id: dataSourceId },
+          data: {
+            lastSyncAt: new Date(),
+            lastSyncStatus: errors.length > 0 ? 'partial' : 'success',
+          },
+        });
+      }
 
       console.log(`[SysCraft] Satellite sync complete: ${hostsFound} found, ${hostsUpdated} updated in ${duration}ms`);
 
@@ -296,21 +341,29 @@ class SchedulerService {
           status: 'failure',
           hostsFound,
           hostsUpdated,
-          errors: JSON.stringify(errors),
+          errors,
           completedAt: new Date(),
         },
       });
+
+      if (dataSourceId != null) {
+        await prisma.dataSource.update({
+          where: { id: dataSourceId },
+          data: { lastSyncAt: new Date(), lastSyncStatus: 'failure' },
+        });
+      }
 
       console.log(`[SysCraft] Satellite sync failed: ${msg}`);
       return { source: 'satellite', hostsFound, hostsUpdated, errors, duration };
     }
   }
 
-  private async syncCheckmk(): Promise<SyncResult> {
+  private async syncCheckmk(dataSourceId?: number): Promise<SyncResult> {
     const startTime = Date.now();
     const syncLog = await prisma.syncLog.create({
       data: {
         source: 'checkmk',
+        dataSourceId: dataSourceId ?? null,
         status: 'running',
         startedAt: new Date(),
       },
@@ -346,24 +399,41 @@ class SchedulerService {
             },
           });
 
-          // Upsert host source
-          await prisma.hostSource.upsert({
-            where: {
-              hostFqdn_source: { hostFqdn: fqdn, source: 'checkmk' },
-            },
-            update: {
-              sourceId: fqdn,
-              rawData: JSON.stringify(cmkHost),
-              lastSynced: new Date(),
-            },
-            create: {
-              hostFqdn: fqdn,
-              source: 'checkmk',
-              sourceId: fqdn,
-              rawData: JSON.stringify(cmkHost),
-              lastSynced: new Date(),
-            },
-          });
+          // Upsert host source — rawData and normalizedData are Json fields, pass objects directly
+          if (dataSourceId != null) {
+            const serviceCount =
+              (cmkHost.services?.ok || 0) +
+              (cmkHost.services?.warn || 0) +
+              (cmkHost.services?.crit || 0) +
+              (cmkHost.services?.unknown || 0) +
+              (cmkHost.services?.pending || 0);
+
+            const normalizedData = {
+              status: cmkHost.status || 'PENDING',
+              agentType: cmkHost.agentType || 'cmk-agent',
+              serviceCount,
+              lastContact: cmkHost.lastContact || null,
+            };
+            await prisma.hostSource.upsert({
+              where: {
+                hostFqdn_dataSourceId: { hostFqdn: fqdn, dataSourceId },
+              },
+              update: {
+                sourceId: fqdn,
+                rawData: cmkHost as any,
+                normalizedData,
+                lastSynced: new Date(),
+              },
+              create: {
+                hostFqdn: fqdn,
+                dataSourceId,
+                sourceId: fqdn,
+                rawData: cmkHost as any,
+                normalizedData,
+                lastSynced: new Date(),
+              },
+            });
+          }
 
           hostsUpdated++;
         } catch (hostError) {
@@ -381,10 +451,20 @@ class SchedulerService {
           status: errors.length > 0 ? 'partial' : 'success',
           hostsFound,
           hostsUpdated,
-          errors: JSON.stringify(errors),
+          errors,
           completedAt: new Date(),
         },
       });
+
+      if (dataSourceId != null) {
+        await prisma.dataSource.update({
+          where: { id: dataSourceId },
+          data: {
+            lastSyncAt: new Date(),
+            lastSyncStatus: errors.length > 0 ? 'partial' : 'success',
+          },
+        });
+      }
 
       console.log(`[SysCraft] Checkmk sync complete: ${hostsFound} found, ${hostsUpdated} updated in ${duration}ms`);
 
@@ -400,16 +480,24 @@ class SchedulerService {
           status: 'failure',
           hostsFound,
           hostsUpdated,
-          errors: JSON.stringify(errors),
+          errors,
           completedAt: new Date(),
         },
       });
+
+      if (dataSourceId != null) {
+        await prisma.dataSource.update({
+          where: { id: dataSourceId },
+          data: { lastSyncAt: new Date(), lastSyncStatus: 'failure' },
+        });
+      }
 
       console.log(`[SysCraft] Checkmk sync failed: ${msg}`);
       return { source: 'checkmk', hostsFound, hostsUpdated, errors, duration };
     }
   }
-  private async syncDns(): Promise<SyncResult | null> {
+
+  private async syncDns(dataSourceId?: number): Promise<SyncResult | null> {
     // Check if DNS sync is enabled
     const dnsEnabledSetting = await prisma.setting.findUnique({ where: { key: 'dns_enabled' } });
     if (!dnsEnabledSetting || dnsEnabledSetting.value !== 'true') {
@@ -433,6 +521,7 @@ class SchedulerService {
     const syncLog = await prisma.syncLog.create({
       data: {
         source: 'dns',
+        dataSourceId: dataSourceId ?? null,
         status: 'running',
         startedAt: new Date(),
       },
@@ -456,32 +545,40 @@ class SchedulerService {
 
       for (const result of dnsResults) {
         try {
-          if (result.forwardIp !== null) {
+          if (result.forwardIp !== null && dataSourceId != null) {
             // Host has an A record — upsert DNS source
+            const normalizedData = {
+              forwardIp: result.forwardIp,
+              reverseHostname: result.reverseHostname || null,
+              forwardMatch: result.forwardMatch,
+              reverseMatch: result.reverseMatch,
+            };
             await prisma.hostSource.upsert({
               where: {
-                hostFqdn_source: { hostFqdn: result.fqdn, source: 'dns' },
+                hostFqdn_dataSourceId: { hostFqdn: result.fqdn, dataSourceId },
               },
               update: {
                 sourceId: result.fqdn,
-                rawData: JSON.stringify(result),
+                rawData: result as any,
+                normalizedData,
                 lastSynced: new Date(),
               },
               create: {
                 hostFqdn: result.fqdn,
-                source: 'dns',
+                dataSourceId,
                 sourceId: result.fqdn,
-                rawData: JSON.stringify(result),
+                rawData: result as any,
+                normalizedData,
                 lastSynced: new Date(),
               },
             });
             hostsUpdated++;
-          } else {
+          } else if (dataSourceId != null) {
             // No A record — remove DNS source if it existed
             await prisma.hostSource.deleteMany({
               where: {
                 hostFqdn: result.fqdn,
-                source: 'dns',
+                dataSourceId,
               },
             });
           }
@@ -500,10 +597,20 @@ class SchedulerService {
           status: errors.length > 0 ? 'partial' : 'success',
           hostsFound,
           hostsUpdated,
-          errors: JSON.stringify(errors),
+          errors,
           completedAt: new Date(),
         },
       });
+
+      if (dataSourceId != null) {
+        await prisma.dataSource.update({
+          where: { id: dataSourceId },
+          data: {
+            lastSyncAt: new Date(),
+            lastSyncStatus: errors.length > 0 ? 'partial' : 'success',
+          },
+        });
+      }
 
       console.log(`[SysCraft] DNS sync complete: ${hostsFound} found, ${hostsUpdated} updated in ${duration}ms`);
 
@@ -519,10 +626,17 @@ class SchedulerService {
           status: 'failure',
           hostsFound,
           hostsUpdated,
-          errors: JSON.stringify(errors),
+          errors,
           completedAt: new Date(),
         },
       });
+
+      if (dataSourceId != null) {
+        await prisma.dataSource.update({
+          where: { id: dataSourceId },
+          data: { lastSyncAt: new Date(), lastSyncStatus: 'failure' },
+        });
+      }
 
       console.log(`[SysCraft] DNS sync failed: ${msg}`);
       return { source: 'dns', hostsFound, hostsUpdated, errors, duration };

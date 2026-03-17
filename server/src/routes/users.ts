@@ -101,12 +101,12 @@ router.post(
           userId: req.user!.id,
           action: 'user_created',
           target: user.username,
-          details: JSON.stringify({
+          details: {
             newUserId: user.id,
             role: validRole,
             hostGroupIds: hostGroupIds || [],
             createdBy: req.user!.username,
-          }),
+          },
         },
       });
 
@@ -179,11 +179,11 @@ router.put(
           userId: req.user!.id,
           action: 'user_updated',
           target: existing.username,
-          details: JSON.stringify({
+          details: {
             targetUserId: id,
             changes: { role, hostGroupIds },
             updatedBy: req.user!.username,
-          }),
+          },
         },
       });
 
@@ -244,7 +244,7 @@ router.delete(
           userId: req.user!.id,
           action: 'user_deleted',
           target: user.username,
-          details: JSON.stringify({ deletedUserId: id, deletedBy: req.user!.username }),
+          details: { deletedUserId: id, deletedBy: req.user!.username },
         },
       });
 

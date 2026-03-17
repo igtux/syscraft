@@ -10,6 +10,10 @@ export async function seed(): Promise<void> {
   const userCount = await prisma.user.count();
   if (userCount > 0) {
     console.log('[SysCraft] Seed skipped: database already has users');
+
+    // Still ensure new items exist (idempotent additions)
+    await seedDataSources();
+    await seedRecommendationSettings();
     return;
   }
 
@@ -83,86 +87,26 @@ export async function seed(): Promise<void> {
 
   // Create default settings
   const settings = [
-    {
-      key: 'sync_interval_minutes',
-      value: '15',
-      description: 'How often (in minutes) the system automatically syncs host data from all sources.',
-    },
-    {
-      key: 'stale_threshold_hours',
-      value: '72',
-      description: 'Number of hours after which a host with no check-in is marked as stale.',
-    },
-    {
-      key: 'satellite_url',
-      value: 'https://satellite.ailab.local',
-      description: 'URL of the Red Hat Satellite / Foreman API server.',
-    },
-    {
-      key: 'satellite_user',
-      value: 'admin',
-      description: 'Username for Satellite API authentication.',
-    },
-    {
-      key: 'satellite_password',
-      value: 'uwx9UVoUCfVdavna',
-      description: 'Password for Satellite API authentication.',
-    },
-    {
-      key: 'checkmk_url',
-      value: 'http://satellite.ailab.local:8080/cmk/check_mk/api/1.0',
-      description: 'URL of the Checkmk REST API endpoint.',
-    },
-    {
-      key: 'checkmk_user',
-      value: 'grafana',
-      description: 'Automation username for Checkmk API authentication.',
-    },
-    {
-      key: 'checkmk_password',
-      value: 'grafana-auto-secret',
-      description: 'Automation secret for Checkmk API authentication.',
-    },
-    {
-      key: 'auto_sync_enabled',
-      value: 'true',
-      description: 'Whether automatic periodic sync is enabled.',
-    },
-    {
-      key: 'compliance_threshold',
-      value: '80',
-      description: 'Minimum compliance score (0-100) for a host to be considered compliant.',
-    },
-    {
-      key: 'dns_enabled',
-      value: 'false',
-      description: 'Enable DNS record validation for hosts during sync.',
-    },
-    {
-      key: 'dns_server',
-      value: '127.0.0.1',
-      description: 'IP address of the DNS server to query for host record validation.',
-    },
-    {
-      key: 'dns_port',
-      value: '53',
-      description: 'Port of the DNS server.',
-    },
-    {
-      key: 'dns_zone',
-      value: 'ailab.local',
-      description: 'DNS zone name used for SOA connectivity test.',
-    },
-    {
-      key: 'dns_batch_size',
-      value: '20',
-      description: 'Number of concurrent DNS queries per batch.',
-    },
-    {
-      key: 'dns_batch_delay_ms',
-      value: '100',
-      description: 'Delay in milliseconds between DNS query batches.',
-    },
+    { key: 'sync_interval_minutes', value: '15', description: 'How often (in minutes) the system automatically syncs host data from all sources.' },
+    { key: 'stale_threshold_hours', value: '72', description: 'Number of hours after which a host with no check-in is marked as stale.' },
+    { key: 'satellite_url', value: 'https://satellite.ailab.local', description: 'URL of the Red Hat Satellite / Foreman API server.' },
+    { key: 'satellite_user', value: 'admin', description: 'Username for Satellite API authentication.' },
+    { key: 'satellite_password', value: 'uwx9UVoUCfVdavna', description: 'Password for Satellite API authentication.' },
+    { key: 'checkmk_url', value: 'http://satellite.ailab.local:8080/cmk/check_mk/api/1.0', description: 'URL of the Checkmk REST API endpoint.' },
+    { key: 'checkmk_user', value: 'grafana', description: 'Automation username for Checkmk API authentication.' },
+    { key: 'checkmk_password', value: 'grafana-auto-secret', description: 'Automation secret for Checkmk API authentication.' },
+    { key: 'auto_sync_enabled', value: 'true', description: 'Whether automatic periodic sync is enabled.' },
+    { key: 'compliance_threshold', value: '80', description: 'Minimum compliance score (0-100) for a host to be considered compliant.' },
+    { key: 'dns_enabled', value: 'false', description: 'Enable DNS record validation for hosts during sync.' },
+    { key: 'dns_server', value: '127.0.0.1', description: 'IP address of the DNS server to query for host record validation.' },
+    { key: 'dns_port', value: '53', description: 'Port of the DNS server.' },
+    { key: 'dns_zone', value: 'ailab.local', description: 'DNS zone name used for SOA connectivity test.' },
+    { key: 'dns_batch_size', value: '20', description: 'Number of concurrent DNS queries per batch.' },
+    { key: 'dns_batch_delay_ms', value: '100', description: 'Delay in milliseconds between DNS query batches.' },
+    { key: 'cleanup_threshold_days', value: '7', description: 'Days a host must be unreachable before recommending cleanup from all systems.' },
+    { key: 'ping_enabled', value: 'true', description: 'Enable ICMP ping liveness checks during sync.' },
+    { key: 'ping_timeout_ms', value: '3000', description: 'Ping timeout in milliseconds per host.' },
+    { key: 'ping_batch_size', value: '10', description: 'Number of concurrent pings per batch.' },
   ];
 
   for (const setting of settings) {
@@ -179,7 +123,6 @@ export async function seed(): Promise<void> {
     },
   });
 
-  // Assign all users to "All Hosts" group
   const allUsers = await prisma.user.findMany({ select: { id: true } });
   for (const u of allUsers) {
     await prisma.userHostGroup.create({
@@ -188,53 +131,93 @@ export async function seed(): Promise<void> {
   }
   console.log('[SysCraft] Created default host group: All Hosts (assigned to all users)');
 
-  // Ensure recommendation settings exist (added in v2, idempotent)
-  const recommendationSettings = [
-    {
-      key: 'cleanup_threshold_days',
-      value: '7',
-      description: 'Days a host must be unreachable before recommending cleanup from all systems.',
-    },
-    {
-      key: 'ping_enabled',
-      value: 'true',
-      description: 'Enable ICMP ping liveness checks during sync.',
-    },
-    {
-      key: 'ping_timeout_ms',
-      value: '3000',
-      description: 'Ping timeout in milliseconds per host.',
-    },
-    {
-      key: 'ping_batch_size',
-      value: '10',
-      description: 'Number of concurrent pings per batch.',
-    },
-  ];
-
-  for (const setting of recommendationSettings) {
-    const existing = await prisma.setting.findUnique({ where: { key: setting.key } });
-    if (!existing) {
-      await prisma.setting.create({ data: setting });
-      console.log(`[SysCraft] Added setting: ${setting.key}`);
-    }
-  }
+  // Seed data sources and recommendation settings
+  await seedDataSources();
+  await seedRecommendationSettings();
 
   // Audit log for seed
   await prisma.auditLog.create({
     data: {
       action: 'database_seeded',
       target: 'system',
-      details: JSON.stringify({
+      details: {
         users: 2,
         baselines: baselines.length,
         settings: settings.length,
         hostGroups: 1,
-      }),
+      },
     },
   });
 
   console.log('[SysCraft] Database seed complete');
+}
+
+async function seedDataSources(): Promise<void> {
+  const sources = [
+    {
+      name: 'Red Hat Satellite',
+      adapter: 'satellite',
+      config: {
+        url: 'https://satellite.ailab.local',
+        user: 'admin',
+        password: 'uwx9UVoUCfVdavna',
+      },
+      enabled: true,
+      syncIntervalMin: 15,
+      capabilities: ['hosts', 'packages', 'errata'],
+    },
+    {
+      name: 'Checkmk',
+      adapter: 'checkmk',
+      config: {
+        url: 'http://satellite.ailab.local:8080/cmk/check_mk/api/1.0',
+        user: 'grafana',
+        password: 'grafana-auto-secret',
+      },
+      enabled: true,
+      syncIntervalMin: 15,
+      capabilities: ['monitoring'],
+    },
+    {
+      name: 'DNS Server',
+      adapter: 'dns',
+      config: {
+        server: '127.0.0.1',
+        port: 53,
+        zone: 'ailab.local',
+        batchSize: 20,
+        batchDelayMs: 100,
+      },
+      enabled: false,
+      syncIntervalMin: 15,
+      capabilities: ['dns'],
+    },
+  ];
+
+  for (const src of sources) {
+    const existing = await prisma.dataSource.findUnique({ where: { name: src.name } });
+    if (!existing) {
+      await prisma.dataSource.create({ data: src });
+      console.log(`[SysCraft] Created data source: ${src.name}`);
+    }
+  }
+}
+
+async function seedRecommendationSettings(): Promise<void> {
+  const recSettings = [
+    { key: 'cleanup_threshold_days', value: '7', description: 'Days a host must be unreachable before recommending cleanup from all systems.' },
+    { key: 'ping_enabled', value: 'true', description: 'Enable ICMP ping liveness checks during sync.' },
+    { key: 'ping_timeout_ms', value: '3000', description: 'Ping timeout in milliseconds per host.' },
+    { key: 'ping_batch_size', value: '10', description: 'Number of concurrent pings per batch.' },
+  ];
+
+  for (const setting of recSettings) {
+    const existing = await prisma.setting.findUnique({ where: { key: setting.key } });
+    if (!existing) {
+      await prisma.setting.create({ data: setting });
+      console.log(`[SysCraft] Added setting: ${setting.key}`);
+    }
+  }
 }
 
 // Run directly if executed as a script

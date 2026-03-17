@@ -114,10 +114,10 @@ router.put(
           userId: req.user!.id,
           action: 'settings_updated',
           target: 'settings',
-          details: JSON.stringify({
+          details: {
             updatedKeys: updates.map((u) => u.key),
             changedBy: req.user!.username,
-          }),
+          },
         },
       });
 

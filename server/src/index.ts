@@ -26,6 +26,7 @@ import hostCollectionRoutes from './routes/host-collections.js';
 import hostGroupRoutes from './routes/host-groups.js';
 import userRoutes from './routes/users.js';
 import recommendationRoutes from './routes/recommendations.js';
+import sourceRoutes from './routes/sources.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -110,6 +111,7 @@ app.use('/api/host-collections', hostCollectionRoutes);
 app.use('/api/host-groups', hostGroupRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/recommendations', recommendationRoutes);
+app.use('/api/sources', sourceRoutes);
 
 // Health check endpoint (no auth)
 app.get('/api/health', (_req, res) => {

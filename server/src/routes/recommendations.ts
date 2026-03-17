@@ -14,7 +14,7 @@ function parseRec(rec: any): Recommendation {
     severity: rec.severity,
     description: rec.description,
     systemTarget: rec.systemTarget,
-    commands: JSON.parse(rec.commands || '[]'),
+    commands: (rec.commands || []) as any,
     status: rec.status,
     createdAt: rec.createdAt.toISOString(),
     updatedAt: rec.updatedAt.toISOString(),
@@ -148,7 +148,7 @@ router.get('/commands/:system', authenticate, async (req: Request, res: Response
     ];
 
     for (const rec of recs) {
-      const commands: CommandEntry[] = JSON.parse(rec.commands || '[]');
+      const commands: CommandEntry[] = (rec.commands || []) as unknown as CommandEntry[];
       lines.push(`# --- ${rec.hostFqdn}: ${rec.type} (${rec.severity}) ---`);
       for (const cmd of commands) {
         lines.push(`# ${cmd.label}`);

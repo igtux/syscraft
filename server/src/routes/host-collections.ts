@@ -29,7 +29,7 @@ router.get('/', authenticate, async (_req: Request, res: Response) => {
         if (hostIds.length > 0) {
           const sources = await prisma.hostSource.findMany({
             where: {
-              source: 'satellite',
+              dataSource: { adapter: 'satellite' },
               sourceId: { in: hostIds.map(String) },
             },
             select: { hostFqdn: true },
@@ -75,7 +75,7 @@ router.get('/organizations', authenticate, async (_req: Request, res: Response) 
 // Plain Foreman hosts without content facet won't appear in Satellite's host collection UI
 async function getContentHostMap(): Promise<Map<string, number>> {
   const sources = await prisma.hostSource.findMany({
-    where: { source: 'satellite' },
+    where: { dataSource: { adapter: 'satellite' } },
     select: { hostFqdn: true, sourceId: true, rawData: true },
   });
 
@@ -84,14 +84,10 @@ async function getContentHostMap(): Promise<Map<string, number>> {
     const satId = parseInt(s.sourceId, 10) || 0;
     if (satId <= 0) continue;
 
-    try {
-      const data = JSON.parse(s.rawData);
-      // Only include hosts registered as content hosts
-      if (data.registered) {
-        map.set(s.hostFqdn, satId);
-      }
-    } catch {
-      // Skip hosts with unparseable data
+    const data = s.rawData as any;
+    // Only include hosts registered as content hosts
+    if (data && data.registered) {
+      map.set(s.hostFqdn, satId);
     }
   }
   return map;
@@ -177,12 +173,12 @@ router.post(
           userId: req.user!.id,
           action: 'host_collection_created',
           target: name,
-          details: JSON.stringify({
+          details: {
             collectionId: collection.id,
             organizationId,
             hostIds: hostIds || [],
             createdBy: req.user!.username,
-          }),
+          },
         },
       });
 
@@ -219,7 +215,7 @@ router.put(
           userId: req.user!.id,
           action: 'host_collection_updated',
           target: name || `collection-${id}`,
-          details: JSON.stringify({ collectionId: id, changedBy: req.user!.username }),
+          details: { collectionId: id, changedBy: req.user!.username },
         },
       });
 
@@ -251,7 +247,7 @@ router.delete(
           userId: req.user!.id,
           action: 'host_collection_deleted',
           target: name,
-          details: JSON.stringify({ collectionId: id, deletedBy: req.user!.username }),
+          details: { collectionId: id, deletedBy: req.user!.username },
         },
       });
 
@@ -287,7 +283,7 @@ router.put(
           userId: req.user!.id,
           action: 'hosts_added_to_collection',
           target: `collection-${id}`,
-          details: JSON.stringify({ collectionId: id, hostIds, changedBy: req.user!.username }),
+          details: { collectionId: id, hostIds, changedBy: req.user!.username },
         },
       });
 
@@ -321,7 +317,7 @@ router.delete(
           userId: req.user!.id,
           action: 'hosts_removed_from_collection',
           target: `collection-${id}`,
-          details: JSON.stringify({ collectionId: id, hostIds, changedBy: req.user!.username }),
+          details: { collectionId: id, hostIds, changedBy: req.user!.username },
         },
       });
 

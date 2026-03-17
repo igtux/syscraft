@@ -4,7 +4,7 @@ dotenv.config();
 
 export const config = {
   PORT: parseInt(process.env.PORT || '4000', 10),
-  DATABASE_URL: process.env.DATABASE_URL || 'file:../data/syscraft.db',
+  DATABASE_URL: process.env.DATABASE_URL || 'postgresql://syscraft:syscraft-db-pass@127.0.0.1:5432/syscraft',
   JWT_SECRET: process.env.JWT_SECRET || 'syscraft-dev-secret-change-me',
   SATELLITE_URL: process.env.SATELLITE_URL || 'https://satellite.ailab.local',
   SATELLITE_USER: process.env.SATELLITE_USER || 'admin',

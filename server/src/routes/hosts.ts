@@ -62,7 +62,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
     if (source) {
       where.sources = {
-        some: { source },
+        some: { dataSource: { adapter: source } },
       };
     }
 
@@ -78,7 +78,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
     const [hosts, total] = await Promise.all([
       prisma.host.findMany({
         where,
-        include: { sources: true },
+        include: { sources: { include: { dataSource: true } } },
         orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -87,7 +87,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
     ]);
 
     const data: HostSummary[] = hosts.map((host) => {
-      const sourceTypes = host.sources.map((s: { source: string }) => s.source as SourceType);
+      const sourceTypes = host.sources.map((s: any) => (s.dataSource as any).adapter as SourceType);
 
       return {
         fqdn: host.fqdn,
@@ -144,7 +144,7 @@ router.get('/:fqdn', authenticate, async (req: Request, res: Response) => {
     const host = await prisma.host.findUnique({
       where: { fqdn },
       include: {
-        sources: true,
+        sources: { include: { dataSource: true } },
         agentStatuses: true,
       },
     });
@@ -154,15 +154,14 @@ router.get('/:fqdn', authenticate, async (req: Request, res: Response) => {
       return;
     }
 
-    const sourceTypes = host.sources.map((s: { source: string }) => s.source as SourceType);
+    const sourceTypes = host.sources.map((s: any) => (s.dataSource as any).adapter as SourceType);
 
     // Parse satellite data from source
     let satelliteData: SatelliteHostData | null = null;
-    const satSource = host.sources.find((s: { source: string }) => s.source === 'satellite');
+    const satSource = host.sources.find((s: any) => (s.dataSource as any).adapter === 'satellite');
     if (satSource) {
-      try {
-        satelliteData = JSON.parse(satSource.rawData) as SatelliteHostData;
-      } catch {
+      satelliteData = satSource.rawData as unknown as SatelliteHostData;
+      if (!satelliteData) {
         // Try to fetch fresh data
         const hostId = satSource.sourceId;
         if (hostId) {
@@ -173,24 +172,16 @@ router.get('/:fqdn', authenticate, async (req: Request, res: Response) => {
 
     // Parse checkmk data from source
     let checkmkData: CheckmkHostData | null = null;
-    const cmkSource = host.sources.find((s: { source: string }) => s.source === 'checkmk');
+    const cmkSource = host.sources.find((s: any) => (s.dataSource as any).adapter === 'checkmk');
     if (cmkSource) {
-      try {
-        checkmkData = JSON.parse(cmkSource.rawData) as CheckmkHostData;
-      } catch {
-        checkmkData = null;
-      }
+      checkmkData = cmkSource.rawData as unknown as CheckmkHostData;
     }
 
     // Parse DNS data from source
     let dnsData: DnsHostData | null = null;
-    const dnsSource = host.sources.find((s: { source: string }) => s.source === 'dns');
+    const dnsSource = host.sources.find((s: any) => (s.dataSource as any).adapter === 'dns');
     if (dnsSource) {
-      try {
-        dnsData = JSON.parse(dnsSource.rawData) as DnsHostData;
-      } catch {
-        dnsData = null;
-      }
+      dnsData = dnsSource.rawData as unknown as DnsHostData;
     }
 
     // Get agent compliance
@@ -204,8 +195,8 @@ router.get('/:fqdn', authenticate, async (req: Request, res: Response) => {
         fqdn: host.fqdn,
         lastPingAt: (host as any).lastPingAt,
         lastPingSuccess: (host as any).lastPingSuccess ?? false,
-        sources: host.sources.map((s) => ({
-          source: s.source,
+        sources: host.sources.map((s: any) => ({
+          source: (s.dataSource as any).adapter,
           rawData: s.rawData,
           lastSynced: s.lastSynced,
         })),
@@ -225,7 +216,7 @@ router.get('/:fqdn', authenticate, async (req: Request, res: Response) => {
       severity: r.severity,
       description: r.description,
       systemTarget: r.systemTarget,
-      commands: JSON.parse(r.commands || '[]') as CommandEntry[],
+      commands: (r.commands || []) as unknown as CommandEntry[],
       status: r.status,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
@@ -299,11 +290,11 @@ router.put(
           userId: req.user!.id,
           action: 'host_status_changed',
           target: fqdn,
-          details: JSON.stringify({
+          details: {
             previousStatus,
             newStatus: status,
             changedBy: req.user!.username,
-          }),
+          },
         },
       });
 
@@ -363,7 +354,7 @@ router.put(
           userId: req.user!.id,
           action: 'os_category_set',
           target: fqdn,
-          details: JSON.stringify({ osCategory, changedBy: req.user!.username }),
+          details: { osCategory, changedBy: req.user!.username },
         },
       });
 

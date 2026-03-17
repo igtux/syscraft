@@ -351,6 +351,24 @@ export interface RecommendationListParams {
   status?: string;
 }
 
+// --- Data Source Types ---
+
+export interface DataSourceEntry {
+  id: number;
+  name: string;
+  adapter: string;
+  config: Record<string, any>;
+  enabled: boolean;
+  syncIntervalMin: number;
+  capabilities: string[];
+  lastSyncAt: string | null;
+  lastSyncStatus: string;
+  hostCount: number;
+  syncCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // --- API Functions ---
 
 export async function login(username: string, password: string): Promise<LoginResponse> {
@@ -437,6 +455,32 @@ export async function dismissRecommendation(id: number): Promise<Recommendation>
 
 export async function resolveRecommendation(id: number): Promise<Recommendation> {
   const response = await api.put<Recommendation>(`/recommendations/${id}/resolve`);
+  return response.data;
+}
+
+// --- Data Sources ---
+
+export async function getDataSources(): Promise<{ data: DataSourceEntry[]; total: number }> {
+  const response = await api.get<{ data: DataSourceEntry[]; total: number }>('/sources');
+  return response.data;
+}
+
+export async function createDataSource(data: { name: string; adapter: string; config: Record<string, any>; enabled?: boolean; syncIntervalMin?: number; capabilities?: string[] }): Promise<DataSourceEntry> {
+  const response = await api.post<DataSourceEntry>('/sources', data);
+  return response.data;
+}
+
+export async function updateDataSource(id: number, data: Partial<DataSourceEntry>): Promise<DataSourceEntry> {
+  const response = await api.put<DataSourceEntry>(`/sources/${id}`, data);
+  return response.data;
+}
+
+export async function deleteDataSource(id: number): Promise<void> {
+  await api.delete(`/sources/${id}`);
+}
+
+export async function testDataSource(id: number): Promise<{ connected: boolean; error: string | null; adapter: string; name: string }> {
+  const response = await api.post<{ connected: boolean; error: string | null; adapter: string; name: string }>(`/sources/${id}/test`);
   return response.data;
 }
 

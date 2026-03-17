@@ -14,7 +14,7 @@ export async function detectIpReuse(): Promise<IpReuseIssue[]> {
   const issues: IpReuseIssue[] = [];
 
   const hosts = await prisma.host.findMany({
-    include: { sources: true },
+    include: { sources: { include: { dataSource: true } } },
   });
 
   // Check for multiple hosts sharing the same IP with different FQDNs
@@ -43,24 +43,20 @@ export async function detectIpReuse(): Promise<IpReuseIssue[]> {
   // Check stored MAC vs current MAC from Satellite facts
   for (const host of hosts) {
     if (!host.macAddress) continue;
-    const satSource = host.sources.find((s) => s.source === 'satellite');
+    const satSource = host.sources.find((s) => s.dataSource.adapter === 'satellite');
     if (!satSource) continue;
 
-    try {
-      const data = JSON.parse(satSource.rawData);
-      const currentMac = (data.macAddress || '').toLowerCase().trim();
-      const storedMac = host.macAddress.toLowerCase().trim();
+    const data = satSource.rawData as Record<string, any>;
+    const currentMac = (data.macAddress || '').toLowerCase().trim();
+    const storedMac = host.macAddress.toLowerCase().trim();
 
-      if (currentMac && storedMac && currentMac !== storedMac) {
-        issues.push({
-          type: 'mac_mismatch',
-          fqdn: host.fqdn,
-          ip: host.ip,
-          detail: `MAC address changed from ${storedMac} to ${currentMac} — possible IP reuse or hardware replacement`,
-        });
-      }
-    } catch {
-      // ignore parse errors
+    if (currentMac && storedMac && currentMac !== storedMac) {
+      issues.push({
+        type: 'mac_mismatch',
+        fqdn: host.fqdn,
+        ip: host.ip,
+        detail: `MAC address changed from ${storedMac} to ${currentMac} — possible IP reuse or hardware replacement`,
+      });
     }
   }
 

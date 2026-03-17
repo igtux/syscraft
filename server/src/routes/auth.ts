@@ -45,7 +45,7 @@ router.post('/login', async (req: Request, res: Response) => {
         userId: user.id,
         action: 'login',
         target: user.username,
-        details: JSON.stringify({ ip: req.ip }),
+        details: { ip: req.ip },
       },
     });
 
@@ -144,7 +144,7 @@ router.post('/change-password', authenticate, async (req: Request, res: Response
         userId: user.id,
         action: 'password_changed',
         target: user.username,
-        details: JSON.stringify({ ip: req.ip }),
+        details: { ip: req.ip },
       },
     });
 

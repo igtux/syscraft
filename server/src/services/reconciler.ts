@@ -21,11 +21,11 @@ class ReconcilerService {
       await prisma.recommendation.deleteMany({ where: { status: 'open' } });
 
       const hosts = await prisma.host.findMany({
-        include: { sources: true },
+        include: { sources: { include: { dataSource: true } } },
       });
 
       // Check DNS enabled
-      const dnsEnabled = hosts.some((h) => h.sources.some((s) => s.source === 'dns'));
+      const dnsEnabled = hosts.some((h) => h.sources.some((s) => s.dataSource.adapter === 'dns'));
 
       let recCount = 0;
 
@@ -40,7 +40,7 @@ class ReconcilerService {
       };
 
       for (const host of hosts) {
-        const sourceTypes = host.sources.map((s) => s.source);
+        const sourceTypes = host.sources.map((s) => s.dataSource.adapter);
         const inSatellite = sourceTypes.includes('satellite');
         const inCheckmk = sourceTypes.includes('checkmk');
         const inDns = sourceTypes.includes('dns');
@@ -48,19 +48,15 @@ class ReconcilerService {
         // a. Classify OS
         let osName = '';
         let agentType = '';
-        const satSource = host.sources.find((s) => s.source === 'satellite');
-        const cmkSource = host.sources.find((s) => s.source === 'checkmk');
+        const satSource = host.sources.find((s) => s.dataSource.adapter === 'satellite');
+        const cmkSource = host.sources.find((s) => s.dataSource.adapter === 'checkmk');
         if (satSource) {
-          try {
-            const data = JSON.parse(satSource.rawData);
-            osName = data.osName || '';
-          } catch { /* ignore */ }
+          const data = satSource.rawData as Record<string, any>;
+          osName = data.osName || '';
         }
         if (cmkSource) {
-          try {
-            const data = JSON.parse(cmkSource.rawData);
-            agentType = data.agentType || '';
-          } catch { /* ignore */ }
+          const data = cmkSource.rawData as Record<string, any>;
+          agentType = data.agentType || '';
         }
 
         const osCategory = classifyOs(osName, agentType, host.fqdn);
@@ -76,8 +72,8 @@ class ReconcilerService {
             lastPingAt: host.lastPingAt,
             lastPingSuccess: host.lastPingSuccess,
             sources: host.sources.map((s) => ({
-              source: s.source,
-              rawData: s.rawData,
+              source: s.dataSource.adapter,
+              rawData: s.rawData as Record<string, any>,
               lastSynced: s.lastSynced,
             })),
           },
@@ -155,33 +151,31 @@ class ReconcilerService {
               recCount++;
             } else {
               // Check DNS quality
-              const dnsSource = host.sources.find((s) => s.source === 'dns');
+              const dnsSource = host.sources.find((s) => s.dataSource.adapter === 'dns');
               if (dnsSource) {
-                try {
-                  const dnsData = JSON.parse(dnsSource.rawData);
-                  if (!dnsData.reverseHostname) {
-                    await this.createRecommendation(
-                      host.fqdn,
-                      'fix_dns_reverse',
-                      'low',
-                      `Host "${host.fqdn}" has a forward A record but no reverse PTR record.`,
-                      'dns',
-                      generateCommands('fix_dns_reverse', cmdCtx, settings)
-                    );
-                    recCount++;
-                  }
-                  if (dnsData.forwardIp && dnsData.reverseHostname && !dnsData.reverseMatch) {
-                    await this.createRecommendation(
-                      host.fqdn,
-                      'fix_dns_mismatch',
-                      'medium',
-                      `Host "${host.fqdn}" forward/reverse DNS records do not match.`,
-                      'dns',
-                      generateCommands('fix_dns_mismatch', cmdCtx, settings)
-                    );
-                    recCount++;
-                  }
-                } catch { /* ignore */ }
+                const dnsData = dnsSource.rawData as Record<string, any>;
+                if (!dnsData.reverseHostname) {
+                  await this.createRecommendation(
+                    host.fqdn,
+                    'fix_dns_reverse',
+                    'low',
+                    `Host "${host.fqdn}" has a forward A record but no reverse PTR record.`,
+                    'dns',
+                    generateCommands('fix_dns_reverse', cmdCtx, settings)
+                  );
+                  recCount++;
+                }
+                if (dnsData.forwardIp && dnsData.reverseHostname && !dnsData.reverseMatch) {
+                  await this.createRecommendation(
+                    host.fqdn,
+                    'fix_dns_mismatch',
+                    'medium',
+                    `Host "${host.fqdn}" forward/reverse DNS records do not match.`,
+                    'dns',
+                    generateCommands('fix_dns_mismatch', cmdCtx, settings)
+                  );
+                  recCount++;
+                }
               }
             }
           }
@@ -269,7 +263,7 @@ class ReconcilerService {
         severity,
         description,
         systemTarget,
-        commands: JSON.stringify(commands),
+        commands: commands as any,
         status: 'open',
       },
     });

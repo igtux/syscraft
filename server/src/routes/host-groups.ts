@@ -68,7 +68,7 @@ router.post(
           userId: req.user!.id,
           action: 'host_group_created',
           target: group.name,
-          details: JSON.stringify({ groupId: group.id, createdBy: req.user!.username }),
+          details: { groupId: group.id, createdBy: req.user!.username },
         },
       });
 
@@ -165,7 +165,7 @@ router.delete(
           userId: req.user!.id,
           action: 'host_group_deleted',
           target: group.name,
-          details: JSON.stringify({ groupId: id, deletedBy: req.user!.username }),
+          details: { groupId: id, deletedBy: req.user!.username },
         },
       });
 

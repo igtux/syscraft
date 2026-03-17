@@ -59,7 +59,7 @@ export function isHostAlive(
     fqdn: string;
     lastPingAt: Date | null;
     lastPingSuccess: boolean;
-    sources: Array<{ source: string; rawData: string; lastSynced: Date }>;
+    sources: Array<{ source: string; rawData: Record<string, any>; lastSynced: Date }>;
   },
   cleanupThresholdDays: number
 ): LivenessResult {
@@ -82,44 +82,36 @@ export function isHostAlive(
   // Signal 2: Checkmk status
   const cmkSource = host.sources.find((s) => s.source === 'checkmk');
   if (cmkSource) {
-    try {
-      const data = JSON.parse(cmkSource.rawData);
-      const cmkAlive = data.status === 'UP';
-      signals.push({
-        source: 'checkmk',
-        alive: cmkAlive,
-        timestamp: cmkSource.lastSynced.toISOString(),
-        detail: `Checkmk status: ${data.status || 'unknown'}`,
-      });
-      if (cmkAlive && (!lastSeenAnywhere || cmkSource.lastSynced > lastSeenAnywhere)) {
-        lastSeenAnywhere = cmkSource.lastSynced;
-      }
-    } catch {
-      // ignore parse errors
+    const data = cmkSource.rawData;
+    const cmkAlive = data.status === 'UP';
+    signals.push({
+      source: 'checkmk',
+      alive: cmkAlive,
+      timestamp: cmkSource.lastSynced.toISOString(),
+      detail: `Checkmk status: ${data.status || 'unknown'}`,
+    });
+    if (cmkAlive && (!lastSeenAnywhere || cmkSource.lastSynced > lastSeenAnywhere)) {
+      lastSeenAnywhere = cmkSource.lastSynced;
     }
   }
 
   // Signal 3: Satellite last checkin
   const satSource = host.sources.find((s) => s.source === 'satellite');
   if (satSource) {
-    try {
-      const data = JSON.parse(satSource.rawData);
-      const checkin = data.lastCheckin ? new Date(data.lastCheckin) : null;
-      if (checkin && !isNaN(checkin.getTime())) {
-        const hoursSinceCheckin = (Date.now() - checkin.getTime()) / (1000 * 60 * 60);
-        const satAlive = hoursSinceCheckin < cleanupThresholdDays * 24;
-        signals.push({
-          source: 'satellite',
-          alive: satAlive,
-          timestamp: checkin.toISOString(),
-          detail: `Last Satellite checkin: ${checkin.toISOString()}`,
-        });
-        if (satAlive && (!lastSeenAnywhere || checkin > lastSeenAnywhere)) {
-          lastSeenAnywhere = checkin;
-        }
+    const data = satSource.rawData;
+    const checkin = data.lastCheckin ? new Date(data.lastCheckin as string) : null;
+    if (checkin && !isNaN(checkin.getTime())) {
+      const hoursSinceCheckin = (Date.now() - checkin.getTime()) / (1000 * 60 * 60);
+      const satAlive = hoursSinceCheckin < cleanupThresholdDays * 24;
+      signals.push({
+        source: 'satellite',
+        alive: satAlive,
+        timestamp: checkin.toISOString(),
+        detail: `Last Satellite checkin: ${checkin.toISOString()}`,
+      });
+      if (satAlive && (!lastSeenAnywhere || checkin > lastSeenAnywhere)) {
+        lastSeenAnywhere = checkin;
       }
-    } catch {
-      // ignore parse errors
     }
   }
 
