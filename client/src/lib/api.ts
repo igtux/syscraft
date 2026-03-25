@@ -545,6 +545,17 @@ export async function updateSettings(settings: Record<string, string | number>):
   return response.data;
 }
 
+export async function testSettingsConnection(
+  adapter: string,
+  config: Record<string, any>
+): Promise<{ connected: boolean; error: string | null; adapter: string }> {
+  const response = await api.post<{ connected: boolean; error: string | null; adapter: string }>(
+    `/settings/test/${adapter}`,
+    config
+  );
+  return response.data;
+}
+
 // --- Host Collections ---
 
 export interface HostCollection {

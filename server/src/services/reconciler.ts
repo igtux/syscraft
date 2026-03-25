@@ -39,7 +39,7 @@ class ReconcilerService {
       // Build command context once
       const cmdCtxBase = {
         satelliteUrl: settings.get('satellite_url') || 'https://satellite.ailab.local',
-        satelliteOrg: 'ailab',
+        satelliteOrg: settings.get('satellite_organization') || 'ailab',
         activationKey: settings.get('satellite_activation_key') || 'ailab-rhel9',
         checkmkUrl: settings.get('checkmk_url') || 'http://satellite.ailab.local:8080/cmk/check_mk/api/1.0',
         checkmkUser: settings.get('checkmk_user') || 'grafana',

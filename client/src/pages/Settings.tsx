@@ -34,6 +34,7 @@ import {
   getDataSources,
   testDataSource,
   updateDataSource,
+  testSettingsConnection,
   type SettingEntry,
   type DataSourceEntry,
 } from '@/lib/api';
@@ -42,6 +43,8 @@ interface SettingsForm {
   satellite_url: string;
   satellite_user: string;
   satellite_password: string;
+  satellite_activation_key: string;
+  satellite_organization: string;
   checkmk_url: string;
   checkmk_user: string;
   checkmk_password: string;
@@ -75,6 +78,8 @@ const DEFAULT_FORM: SettingsForm = {
   satellite_url: '',
   satellite_user: '',
   satellite_password: '',
+  satellite_activation_key: 'ailab-rhel9',
+  satellite_organization: 'ailab',
   checkmk_url: '',
   checkmk_user: '',
   checkmk_password: '',
@@ -377,6 +382,8 @@ export default function Settings() {
 
   const [formData, setFormData] = useState<SettingsForm>({ ...DEFAULT_FORM });
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [testingAdapter, setTestingAdapter] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<Record<string, { connected: boolean; error: string | null }>>({});
 
   useEffect(() => {
     if (settingsResponse?.data) {
@@ -398,6 +405,8 @@ export default function Settings() {
       satellite_url: formData.satellite_url,
       satellite_user: formData.satellite_user,
       satellite_password: formData.satellite_password,
+      satellite_activation_key: formData.satellite_activation_key,
+      satellite_organization: formData.satellite_organization,
       checkmk_url: formData.checkmk_url,
       checkmk_user: formData.checkmk_user,
       checkmk_password: formData.checkmk_password,
@@ -425,6 +434,32 @@ export default function Settings() {
       rec_vm_powered_off: formData.rec_vm_powered_off,
       vm_powered_off_threshold_days: formData.vm_powered_off_threshold_days,
     });
+  };
+
+  const handleTestConnection = async (adapter: string) => {
+    setTestingAdapter(adapter);
+    setTestResults((prev) => { const next = { ...prev }; delete next[adapter]; return next; });
+    try {
+      let config: Record<string, any>;
+      switch (adapter) {
+        case 'satellite':
+          config = { url: formData.satellite_url, user: formData.satellite_user, password: formData.satellite_password };
+          break;
+        case 'checkmk':
+          config = { url: formData.checkmk_url, user: formData.checkmk_user, password: formData.checkmk_password };
+          break;
+        case 'dns':
+          config = { server: formData.dns_server, port: formData.dns_port, zone: formData.dns_zone };
+          break;
+        default:
+          return;
+      }
+      const result = await testSettingsConnection(adapter, config);
+      setTestResults((prev) => ({ ...prev, [adapter]: { connected: result.connected, error: result.error } }));
+    } catch {
+      setTestResults((prev) => ({ ...prev, [adapter]: { connected: false, error: 'Test request failed' } }));
+    }
+    setTestingAdapter(null);
   };
 
   const toggle = (key: keyof SettingsForm) =>
@@ -510,6 +545,49 @@ export default function Settings() {
                 />
               </div>
             </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">Organization</label>
+                <input
+                  type="text"
+                  value={formData.satellite_organization}
+                  onChange={(e) => setFormData((f) => ({ ...f, satellite_organization: e.target.value }))}
+                  className="input-field w-full"
+                  placeholder="ailab"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-slate-500">Satellite organization for host registration.</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300">Activation Key</label>
+                <input
+                  type="text"
+                  value={formData.satellite_activation_key}
+                  onChange={(e) => setFormData((f) => ({ ...f, satellite_activation_key: e.target.value }))}
+                  className="input-field w-full"
+                  placeholder="ailab-rhel9"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-slate-500">Activation key used in registration commands.</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-700/50">
+              {testResults.satellite ? (
+                <span className={cn('text-xs flex items-center gap-1.5', testResults.satellite.connected ? 'text-green-400' : 'text-red-400')}>
+                  {testResults.satellite.connected ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                  {testResults.satellite.connected ? 'Connection successful' : (testResults.satellite.error || 'Connection failed')}
+                </span>
+              ) : <span />}
+              <button
+                type="button"
+                onClick={() => handleTestConnection('satellite')}
+                disabled={testingAdapter === 'satellite'}
+                className="text-sm text-slate-400 hover:text-blue-400 flex items-center gap-1.5 transition-colors"
+              >
+                {testingAdapter === 'satellite' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plug className="w-3.5 h-3.5" />}
+                Test Connection
+              </button>
+            </div>
           </div>
         </CollapsibleCard>
 
@@ -560,6 +638,23 @@ export default function Settings() {
                   placeholder="Automation secret"
                 />
               </div>
+            </div>
+            <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-700/50">
+              {testResults.checkmk ? (
+                <span className={cn('text-xs flex items-center gap-1.5', testResults.checkmk.connected ? 'text-green-400' : 'text-red-400')}>
+                  {testResults.checkmk.connected ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                  {testResults.checkmk.connected ? 'Connection successful' : (testResults.checkmk.error || 'Connection failed')}
+                </span>
+              ) : <span />}
+              <button
+                type="button"
+                onClick={() => handleTestConnection('checkmk')}
+                disabled={testingAdapter === 'checkmk'}
+                className="text-sm text-slate-400 hover:text-blue-400 flex items-center gap-1.5 transition-colors"
+              >
+                {testingAdapter === 'checkmk' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plug className="w-3.5 h-3.5" />}
+                Test Connection
+              </button>
             </div>
           </div>
         </CollapsibleCard>
@@ -658,6 +753,23 @@ export default function Settings() {
                 />
                 <p className="text-xs text-slate-500">Milliseconds between query batches.</p>
               </div>
+            </div>
+            <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-700/50">
+              {testResults.dns ? (
+                <span className={cn('text-xs flex items-center gap-1.5', testResults.dns.connected ? 'text-green-400' : 'text-red-400')}>
+                  {testResults.dns.connected ? <CheckCircle2 className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                  {testResults.dns.connected ? 'Connection successful' : (testResults.dns.error || 'Connection failed')}
+                </span>
+              ) : <span />}
+              <button
+                type="button"
+                onClick={() => handleTestConnection('dns')}
+                disabled={testingAdapter === 'dns'}
+                className="text-sm text-slate-400 hover:text-blue-400 flex items-center gap-1.5 transition-colors"
+              >
+                {testingAdapter === 'dns' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plug className="w-3.5 h-3.5" />}
+                Test Connection
+              </button>
             </div>
           </div>
         </CollapsibleCard>
