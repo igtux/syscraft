@@ -14,7 +14,18 @@ export default function CommandBlock({ commands, compact }: CommandBlockProps) {
 
   const copyToClipboard = async (text: string, idx?: number) => {
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
       if (idx !== undefined) {
         setCopiedIdx(idx);
         setTimeout(() => setCopiedIdx(null), 2000);
@@ -23,7 +34,7 @@ export default function CommandBlock({ commands, compact }: CommandBlockProps) {
         setTimeout(() => setCopiedAll(false), 2000);
       }
     } catch {
-      // fallback
+      // ignore
     }
   };
 
