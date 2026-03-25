@@ -174,10 +174,8 @@ function ToggleSwitch({
       )}
     >
       <span
-        className={cn(
-          'inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
-          enabled ? 'translate-x-6' : 'translate-x-1',
-        )}
+        className="inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200"
+        style={{ transform: enabled ? 'translateX(22px)' : 'translateX(4px)' }}
       />
     </button>
   );
@@ -322,10 +320,10 @@ function DataSourcesCard() {
                   src.enabled ? 'bg-blue-600' : 'bg-slate-600'
                 )}
               >
-                <span className={cn(
-                  'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
-                  src.enabled ? 'translate-x-4.5' : 'translate-x-0.5'
-                )} />
+                <span
+                  className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-200"
+                  style={{ transform: src.enabled ? 'translateX(18px)' : 'translateX(3px)' }}
+                />
               </button>
             </div>
           </div>
@@ -591,9 +589,8 @@ export default function Settings() {
                 }`}
               >
                 <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    formData.dns_enabled === 'true' ? 'translate-x-6' : 'translate-x-1'
-                  }`}
+                  className="inline-block h-4 w-4 rounded-full bg-white transition-transform duration-200"
+                  style={{ transform: formData.dns_enabled === 'true' ? 'translateX(22px)' : 'translateX(4px)' }}
                 />
               </button>
             </div>
@@ -743,9 +740,8 @@ export default function Settings() {
                 }`}
               >
                 <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    formData.ping_enabled === 'true' ? 'translate-x-6' : 'translate-x-1'
-                  }`}
+                  className="inline-block h-4 w-4 rounded-full bg-white transition-transform duration-200"
+                  style={{ transform: formData.ping_enabled === 'true' ? 'translateX(22px)' : 'translateX(4px)' }}
                 />
               </button>
             </div>
