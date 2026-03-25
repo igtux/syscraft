@@ -200,6 +200,8 @@ export default function Hosts() {
             <option value="">All Sources</option>
             <option value="satellite">Satellite</option>
             <option value="checkmk">Checkmk</option>
+            <option value="dns">DNS</option>
+            <option value="vcsa">vCSA</option>
           </select>
 
           {/* OS Category Filter */}
