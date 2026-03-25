@@ -192,6 +192,18 @@ async function seedDataSources(): Promise<void> {
       syncIntervalMin: 15,
       capabilities: ['dns'],
     },
+    {
+      name: 'vCenter Server',
+      adapter: 'vcsa',
+      config: {
+        url: 'https://10.45.138.20',
+        user: 'administrator@vsphere.local',
+        password: '@@@vasaasDfvBk6@',
+      },
+      enabled: true,
+      syncIntervalMin: 15,
+      capabilities: ['vms', 'infrastructure'],
+    },
   ];
 
   for (const src of sources) {
@@ -209,6 +221,7 @@ async function seedRecommendationSettings(): Promise<void> {
     { key: 'ping_enabled', value: 'true', description: 'Enable ICMP ping liveness checks during sync.' },
     { key: 'ping_timeout_ms', value: '3000', description: 'Ping timeout in milliseconds per host.' },
     { key: 'ping_batch_size', value: '10', description: 'Number of concurrent pings per batch.' },
+    { key: 'vm_powered_off_threshold_days', value: '14', description: 'Days a VM must be powered off before generating a cleanup recommendation.' },
   ];
 
   for (const setting of recSettings) {

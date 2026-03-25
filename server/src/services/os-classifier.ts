@@ -20,8 +20,17 @@ const APPLIANCE_FQDN_PATTERNS = [
 export function classifyOs(
   osName: string,
   agentType: string,
-  fqdn: string
+  fqdn: string,
+  vcsaGuestFamily?: string | null
 ): OsCategory {
+  // 0. vCSA guest family (highest priority — most accurate)
+  if (vcsaGuestFamily) {
+    const upper = vcsaGuestFamily.toUpperCase();
+    if (upper === 'LINUX') return 'linux';
+    if (upper === 'WINDOWS') return 'windows';
+    if (upper === 'OTHER') return 'appliance';
+  }
+
   // 1. Check Satellite osName
   if (osName) {
     for (const pattern of LINUX_PATTERNS) {

@@ -8,7 +8,8 @@ SysCraft continuously syncs host data from multiple infrastructure systems, dete
 
 - **Extensible data sources** — Pluggable adapter architecture; add Satellite, Checkmk, DNS, vCSA, NetBox, or custom sources via the UI
 - **Multi-source inventory** — All sources consolidated into one normalized view
-- **Liveness detection** — ICMP ping + Checkmk status + Satellite checkin signals
+- **vCSA integration** — Auto-discovers VMs, ESXi hosts, datastores, networks from any vCenter; plug-and-play
+- **Liveness detection** — ICMP ping + Checkmk status + Satellite checkin + vCSA power state signals
 - **OS-aware recommendations** — Linux hosts get Satellite + Checkmk checks; Windows/appliances get Checkmk only
 - **Command generation** — `hammer` and `curl` commands ready to paste, grouped per host or per system
 - **Agent compliance** — Tracks required agents (subscription-manager, check-mk-agent, etc.) with baseline scoring
@@ -58,7 +59,8 @@ DataSource (DB registry)
   ├── Red Hat Satellite (adapter: satellite)
   ├── Checkmk (adapter: checkmk)
   ├── DNS Server (adapter: dns)
-  └── ... (future: vcsa, netbox, custom)
+  ├── vCenter Server (adapter: vcsa)
+  └── ... (future: netbox, custom)
        ↓
 Scheduler (per-source sync intervals)
   └── HostSource (rawData JSONB + normalizedData JSONB)
@@ -79,6 +81,7 @@ All settings managed through **Settings** in the UI:
 | Stale threshold | 72 hours | When hosts are flagged stale |
 | Cleanup threshold | 7 days | When dead hosts get cleanup recommendations |
 | Ping enabled | true | ICMP liveness checks during sync |
+| VM powered-off threshold | 14 days | When powered-off VMs get cleanup recommendations |
 
 Data sources are managed in **Settings > Data Sources** — enable/disable, test connections, configure per-source.
 

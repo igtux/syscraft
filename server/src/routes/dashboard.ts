@@ -124,7 +124,16 @@ router.get('/', authenticate, async (_req: Request, res: Response) => {
         absent: agentsAbsent,
         percent: agentCompliancePercent,
       },
+      vcsaInfrastructure: null,
     };
+
+    // Load cached vCSA infrastructure data
+    try {
+      const infraSetting = await prisma.setting.findUnique({ where: { key: 'vcsa_infrastructure' } });
+      if (infraSetting?.value) {
+        dashboard.vcsaInfrastructure = JSON.parse(infraSetting.value);
+      }
+    } catch { /* ignore */ }
 
     res.json(dashboard);
   } catch (error) {

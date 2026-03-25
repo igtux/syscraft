@@ -270,6 +270,9 @@ export default function HostDetail() {
         {/* DNS Data */}
         <DnsSection data={host.dns} />
 
+        {/* vCSA VM Data */}
+        <VcsaSection host={host} />
+
         {/* Agent Compliance */}
         <AgentComplianceSection agents={host.agents} />
 
@@ -532,6 +535,63 @@ function AgentComplianceSection({ agents }: { agents: HostDetailType['agents'] }
             </div>
           </div>
         ))}
+      </div>
+    </Card>
+  );
+}
+
+function VcsaSection({ host }: { host: HostDetailType }) {
+  // Find vCSA source data from rawData
+  // The host detail doesn't directly expose vcsa as a top-level field,
+  // but vCSA is in sources array. We check if vcsa is in sources.
+  if (!host.sources.includes('vcsa')) return null;
+
+  // vCSA data is in recommendations/liveness signals — extract from liveness
+  const vcsaSignal = host.liveness?.signals.find((s) => s.source === 'vcsa');
+  const powerState = vcsaSignal?.detail?.includes('POWERED_ON') ? 'POWERED_ON' :
+    vcsaSignal?.detail?.includes('POWERED_OFF') ? 'POWERED_OFF' : 'UNKNOWN';
+
+  return (
+    <Card
+      title={
+        <div className="flex items-center gap-2">
+          <Server className="w-5 h-5 text-blue-400" />
+          <span>vSphere VM</span>
+        </div>
+      }
+      subtitle="Virtual machine details from vCenter"
+    >
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div>
+            <p className="text-xs text-slate-400 font-medium">Power State</p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className={cn(
+                'w-2.5 h-2.5 rounded-full',
+                powerState === 'POWERED_ON' ? 'bg-green-400 animate-pulse' : 'bg-red-400'
+              )} />
+              <span className={cn(
+                'text-sm font-medium',
+                powerState === 'POWERED_ON' ? 'text-green-400' : 'text-red-400'
+              )}>
+                {powerState === 'POWERED_ON' ? 'Powered On' : powerState === 'POWERED_OFF' ? 'Powered Off' : 'Unknown'}
+              </span>
+            </div>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400 font-medium">OS Category</p>
+            <p className="text-sm text-white mt-0.5 capitalize">{host.osCategory}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400 font-medium">MAC Address</p>
+            <p className="text-sm text-white mt-0.5 font-mono">{host.macAddress || 'N/A'}</p>
+          </div>
+        </div>
+        {vcsaSignal && (
+          <p className="text-xs text-slate-500">
+            Last checked: {vcsaSignal.timestamp ? new Date(vcsaSignal.timestamp).toLocaleString() : 'N/A'}
+          </p>
+        )}
       </div>
     </Card>
   );

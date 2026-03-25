@@ -1,5 +1,5 @@
 export type HostStatus = 'active' | 'partial' | 'stale' | 'new' | 'decommissioning';
-export type SourceType = 'satellite' | 'checkmk' | 'dns';
+export type SourceType = 'satellite' | 'checkmk' | 'dns' | 'vcsa';
 export type UserRole = 'admin' | 'user';
 export type OsCategory = 'linux' | 'windows' | 'appliance' | 'unknown';
 export type RecommendationType =
@@ -14,7 +14,8 @@ export type RecommendationType =
   | 'add_dns'
   | 'remove_dns'
   | 'fix_dns_reverse'
-  | 'fix_dns_mismatch';
+  | 'fix_dns_mismatch'
+  | 'vm_powered_off';
 
 export interface CommandEntry {
   label: string;
@@ -170,6 +171,7 @@ export interface DashboardData {
     absent: number;
     percent: number;
   };
+  vcsaInfrastructure: VcsaInfrastructure | null;
 }
 
 export interface SystemStatus {
@@ -196,6 +198,29 @@ export interface SyncResult {
   hostsUpdated: number;
   errors: string[];
   duration: number;
+}
+
+export interface VcsaVmData {
+  vmName: string;
+  vmId: string;
+  powerState: string;
+  os: string | null;
+  osFamily: string | null;
+  ip: string | null;
+  mac: string | null;
+  cpuCount: number;
+  ramMb: number;
+  diskGb: number;
+  guestToolsRunning: boolean;
+}
+
+export interface VcsaInfrastructure {
+  esxiHosts: Array<{ name: string; connectionState: string; powerState: string }>;
+  datastores: Array<{ name: string; type: string; capacityBytes: number; freeSpaceBytes: number; usedPercent: number }>;
+  networks: Array<{ name: string; type: string }>;
+  vmCount: number;
+  vmPoweredOn: number;
+  vmPoweredOff: number;
 }
 
 export interface PaginatedResponse<T> {

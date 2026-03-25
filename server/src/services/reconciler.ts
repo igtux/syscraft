@@ -48,8 +48,10 @@ class ReconcilerService {
         // a. Classify OS
         let osName = '';
         let agentType = '';
+        let vcsaGuestFamily: string | null = null;
         const satSource = host.sources.find((s) => s.dataSource.adapter === 'satellite');
         const cmkSource = host.sources.find((s) => s.dataSource.adapter === 'checkmk');
+        const vcsaSource = host.sources.find((s) => s.dataSource.adapter === 'vcsa');
         if (satSource) {
           const data = satSource.rawData as Record<string, any>;
           osName = data.osName || '';
@@ -58,8 +60,12 @@ class ReconcilerService {
           const data = cmkSource.rawData as Record<string, any>;
           agentType = data.agentType || '';
         }
+        if (vcsaSource) {
+          const data = vcsaSource.rawData as Record<string, any>;
+          vcsaGuestFamily = data.osFamily || null;
+        }
 
-        const osCategory = classifyOs(osName, agentType, host.fqdn);
+        const osCategory = classifyOs(osName, agentType, host.fqdn, vcsaGuestFamily);
         await prisma.host.update({
           where: { fqdn: host.fqdn },
           data: { osCategory },
@@ -214,6 +220,31 @@ class ReconcilerService {
         else if (!liveness.alive) {
           if (host.lastSeen < staleThreshold) {
             await prisma.host.update({ where: { fqdn: host.fqdn }, data: { status: 'stale' } });
+          }
+        }
+
+        // g. Check powered-off VMs from vCSA
+        if (vcsaSource) {
+          const vcsaData = vcsaSource.rawData as Record<string, any>;
+          if (vcsaData.powerState === 'POWERED_OFF') {
+            const vmOffThresholdSetting = settings.get('vm_powered_off_threshold_days') || '14';
+            const vmOffThreshold = parseInt(vmOffThresholdSetting, 10);
+            const lastSynced = vcsaSource.lastSynced;
+            const daysSinceSync = Math.floor((Date.now() - new Date(lastSynced).getTime()) / (1000 * 60 * 60 * 24));
+            // For newly discovered powered-off VMs, use days since first seen
+            const daysSinceCreated = Math.floor((Date.now() - host.createdAt.getTime()) / (1000 * 60 * 60 * 24));
+            const daysOff = Math.max(daysSinceSync, daysSinceCreated);
+            if (daysOff >= vmOffThreshold || daysSinceCreated >= vmOffThreshold) {
+              await this.createRecommendation(
+                host.fqdn,
+                'vm_powered_off',
+                'info',
+                `VM "${vcsaData.vmName || host.fqdn}" has been powered off — consider cleanup or archival.`,
+                'host',
+                generateCommands('vm_powered_off', cmdCtx, settings)
+              );
+              recCount++;
+            }
           }
         }
       }

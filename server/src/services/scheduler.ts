@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import { satelliteService } from './satellite.js';
 import { checkmkService } from './checkmk.js';
 import { dnsService } from './dns.js';
+import { vcsaService } from './vcsa.js';
 import { reconcilerService } from './reconciler.js';
 import { baselineService } from './baseline.js';
 import { pingAllHosts } from './ping.js';
@@ -16,6 +17,7 @@ interface DataSourceMap {
   satellite?: number;
   checkmk?: number;
   dns?: number;
+  vcsa?: number;
 }
 
 class SchedulerService {
@@ -86,13 +88,14 @@ class SchedulerService {
       // Look up DataSource records by adapter key so we can set dataSourceId on
       // HostSource and SyncLog rows.
       const dataSources = await prisma.dataSource.findMany({
-        where: { adapter: { in: ['satellite', 'checkmk', 'dns'] } },
+        where: { adapter: { in: ['satellite', 'checkmk', 'dns', 'vcsa'] } },
       });
       const dsMap: DataSourceMap = {};
       for (const ds of dataSources) {
         if (ds.adapter === 'satellite') dsMap.satellite = ds.id;
         else if (ds.adapter === 'checkmk') dsMap.checkmk = ds.id;
         else if (ds.adapter === 'dns') dsMap.dns = ds.id;
+        else if (ds.adapter === 'vcsa') dsMap.vcsa = ds.id;
       }
 
       // Sync from Satellite
@@ -107,6 +110,12 @@ class SchedulerService {
       const dnsResult = await this.syncDns(dsMap.dns);
       if (dnsResult) {
         results.push(dnsResult);
+      }
+
+      // Sync from vCSA (if enabled)
+      const vcsaResult = await this.syncVcsa(dsMap.vcsa);
+      if (vcsaResult) {
+        results.push(vcsaResult);
       }
 
       // Ping sweep (if enabled)
@@ -183,6 +192,9 @@ class SchedulerService {
       };
       if (dnsResult) {
         auditDetails.dns = { hostsFound: dnsResult.hostsFound, hostsUpdated: dnsResult.hostsUpdated };
+      }
+      if (vcsaResult) {
+        auditDetails.vcsa = { hostsFound: vcsaResult.hostsFound, hostsUpdated: vcsaResult.hostsUpdated };
       }
       await prisma.auditLog.create({
         data: {
@@ -640,6 +652,217 @@ class SchedulerService {
 
       console.log(`[SysCraft] DNS sync failed: ${msg}`);
       return { source: 'dns', hostsFound, hostsUpdated, errors, duration };
+    }
+  }
+
+  private async syncVcsa(dataSourceId?: number): Promise<SyncResult | null> {
+    if (!dataSourceId) return null;
+
+    // Load DataSource record to get config
+    const dataSource = await prisma.dataSource.findUnique({ where: { id: dataSourceId } });
+    if (!dataSource || !dataSource.enabled) return null;
+
+    const dsConfig = dataSource.config as Record<string, any> | null;
+    if (!dsConfig?.url || !dsConfig?.user || !dsConfig?.password) {
+      console.log('[SysCraft] vCSA DataSource missing config (url/user/password), skipping');
+      return null;
+    }
+
+    vcsaService.reconfigure(dsConfig.url, dsConfig.user, dsConfig.password);
+
+    const startTime = Date.now();
+    const syncLog = await prisma.syncLog.create({
+      data: {
+        source: 'vcsa',
+        dataSourceId: dataSourceId ?? null,
+        status: 'running',
+        startedAt: new Date(),
+      },
+    });
+
+    let hostsFound = 0;
+    let hostsUpdated = 0;
+    const errors: string[] = [];
+
+    try {
+      // Fetch all enriched VMs
+      const vms = await vcsaService.fetchAllVMsEnriched();
+      hostsFound = vms.length;
+
+      // Fetch infrastructure data (ESXi hosts, datastores, networks)
+      const [esxiHosts, datastores, networks] = await Promise.all([
+        vcsaService.fetchHosts(),
+        vcsaService.fetchDatastores(),
+        vcsaService.fetchNetworks(),
+      ]);
+
+      // Store infrastructure data in settings with VM counts
+      const vmPoweredOn = vms.filter((v) => v.powerState === 'POWERED_ON').length;
+      const vmPoweredOff = vms.filter((v) => v.powerState === 'POWERED_OFF').length;
+      const infraData = { esxiHosts, datastores, networks, vmCount: vms.length, vmPoweredOn, vmPoweredOff };
+      await prisma.setting.upsert({
+        where: { key: 'vcsa_infrastructure' },
+        update: { value: JSON.stringify(infraData) },
+        create: { key: 'vcsa_infrastructure', value: JSON.stringify(infraData) },
+      });
+
+      // Get dns_zone for FQDN construction
+      const dnsZoneSetting = await prisma.setting.findUnique({ where: { key: 'dns_zone' } });
+      const dnsZone = dnsZoneSetting?.value || 'ailab.local';
+
+      for (const vm of vms) {
+        try {
+          // Determine FQDN
+          let fqdn: string | null = null;
+          const guestHostname = vm.guest.hostname;
+          const guestIp = vm.guest.ip;
+
+          if (guestHostname) {
+            if (guestHostname.includes('.')) {
+              fqdn = guestHostname;
+            } else {
+              fqdn = `${guestHostname}.${dnsZone}`;
+            }
+          } else if (!guestIp) {
+            // No hostname and no IP — skip this VM entirely
+            continue;
+          }
+
+          // If no FQDN but has IP, skip host creation (just a temporary identifier)
+          if (!fqdn) {
+            continue;
+          }
+
+          const os = vm.guest.osFullName || '';
+          const ip = guestIp || '';
+          const mac = vm.nics.length > 0 ? vm.nics[0].mac : '';
+
+          // Upsert host record
+          await prisma.host.upsert({
+            where: { fqdn },
+            update: {
+              ip: ip || undefined,
+              os: os || undefined,
+              macAddress: mac || undefined,
+              lastSeen: new Date(),
+              updatedAt: new Date(),
+            },
+            create: {
+              fqdn,
+              ip: ip || '',
+              os,
+              arch: '',
+              macAddress: mac,
+              status: 'new',
+              lastSeen: new Date(),
+            },
+          });
+
+          // Upsert host source — rawData and normalizedData are Json fields, pass objects directly
+          const rawData = {
+            vmName: vm.vmName,
+            vmId: vm.vmId,
+            powerState: vm.powerState,
+            osFamily: vm.guest.osFamily,
+            osFullName: vm.guest.osFullName,
+            ip: guestIp,
+            mac,
+            cpuCount: vm.cpuCount,
+            ramMb: vm.ramMb,
+          };
+          const normalizedData = {
+            vmName: vm.vmName,
+            vmId: vm.vmId,
+            powerState: vm.powerState,
+            os: vm.guest.osFullName,
+            osFamily: vm.guest.osFamily,
+            ip: guestIp,
+            mac,
+            cpuCount: vm.cpuCount,
+            ramMb: vm.ramMb,
+            diskGb: 0,
+            guestToolsRunning: vm.guest.toolsRunning,
+          };
+
+          await prisma.hostSource.upsert({
+            where: {
+              hostFqdn_dataSourceId: { hostFqdn: fqdn, dataSourceId },
+            },
+            update: {
+              sourceId: vm.vmId,
+              rawData,
+              normalizedData,
+              lastSynced: new Date(),
+            },
+            create: {
+              hostFqdn: fqdn,
+              dataSourceId,
+              sourceId: vm.vmId,
+              rawData,
+              normalizedData,
+              lastSynced: new Date(),
+            },
+          });
+
+          hostsUpdated++;
+        } catch (hostError) {
+          const msg = `Error processing vCSA VM ${vm.vmName}: ${(hostError as Error).message}`;
+          console.log(`[SysCraft] ${msg}`);
+          errors.push(msg);
+        }
+      }
+
+      const duration = Date.now() - startTime;
+
+      await prisma.syncLog.update({
+        where: { id: syncLog.id },
+        data: {
+          status: errors.length > 0 ? 'partial' : 'success',
+          hostsFound,
+          hostsUpdated,
+          errors,
+          completedAt: new Date(),
+        },
+      });
+
+      if (dataSourceId != null) {
+        await prisma.dataSource.update({
+          where: { id: dataSourceId },
+          data: {
+            lastSyncAt: new Date(),
+            lastSyncStatus: errors.length > 0 ? 'partial' : 'success',
+          },
+        });
+      }
+
+      console.log(`[SysCraft] vCSA sync complete: ${hostsFound} found, ${hostsUpdated} updated in ${duration}ms`);
+
+      return { source: 'vcsa', hostsFound, hostsUpdated, errors, duration };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const msg = (error as Error).message;
+      errors.push(msg);
+
+      await prisma.syncLog.update({
+        where: { id: syncLog.id },
+        data: {
+          status: 'failure',
+          hostsFound,
+          hostsUpdated,
+          errors,
+          completedAt: new Date(),
+        },
+      });
+
+      if (dataSourceId != null) {
+        await prisma.dataSource.update({
+          where: { id: dataSourceId },
+          data: { lastSyncAt: new Date(), lastSyncStatus: 'failure' },
+        });
+      }
+
+      console.log(`[SysCraft] vCSA sync failed: ${msg}`);
+      return { source: 'vcsa', hostsFound, hostsUpdated, errors, duration };
     }
   }
 }

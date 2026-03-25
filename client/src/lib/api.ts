@@ -101,6 +101,16 @@ export interface DashboardData {
     absent: number;
     percent: number;
   };
+  vcsaInfrastructure: VcsaInfrastructure | null;
+}
+
+export interface VcsaInfrastructure {
+  esxiHosts: Array<{ name: string; connectionState: string; powerState: string }>;
+  datastores: Array<{ name: string; type: string; capacityBytes: number; freeSpaceBytes: number; usedPercent: number }>;
+  networks: Array<{ name: string; type: string }>;
+  vmCount: number;
+  vmPoweredOn: number;
+  vmPoweredOff: number;
 }
 
 export interface HostSummary {

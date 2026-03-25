@@ -4,6 +4,7 @@ import { authenticate, authorize } from '../middleware/auth.js';
 import { satelliteService } from '../services/satellite.js';
 import { checkmkService } from '../services/checkmk.js';
 import { dnsService } from '../services/dns.js';
+import { vcsaService } from '../services/vcsa.js';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -228,6 +229,12 @@ router.post('/:id/test', authenticate, authorize('admin'), async (req: Request, 
         try {
           dnsService.reconfigure(config.server, config.port || 53, config.zone || '');
           connected = await dnsService.testConnection();
+        } catch (e) { error = (e as Error).message; }
+        break;
+      case 'vcsa':
+        try {
+          vcsaService.reconfigure(config.url, config.user, config.password);
+          connected = await vcsaService.testConnection();
         } catch (e) { error = (e as Error).message; }
         break;
       default:

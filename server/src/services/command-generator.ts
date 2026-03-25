@@ -142,6 +142,14 @@ export function generateCommands(
         runFrom: 'SysCraft UI',
       });
       break;
+
+    case 'vm_powered_off':
+      commands.push({
+        label: 'VM is powered off — consider cleanup or archival',
+        command: '(Review in vSphere Client — power on, archive, or delete the VM)',
+        runFrom: 'vSphere Client',
+      });
+      break;
   }
 
   return commands;

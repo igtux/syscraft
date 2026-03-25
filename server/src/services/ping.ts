@@ -115,6 +115,23 @@ export function isHostAlive(
     }
   }
 
+  // Signal 4: vCSA VM power state
+  const vcsaSource = host.sources.find((s) => s.source === 'vcsa');
+  if (vcsaSource) {
+    const data = vcsaSource.rawData;
+    const powerState = data.powerState as string || '';
+    const vcsaAlive = powerState === 'POWERED_ON';
+    signals.push({
+      source: 'vcsa',
+      alive: vcsaAlive,
+      timestamp: vcsaSource.lastSynced.toISOString(),
+      detail: `vCSA VM power state: ${powerState || 'unknown'}`,
+    });
+    if (vcsaAlive && (!lastSeenAnywhere || vcsaSource.lastSynced > lastSeenAnywhere)) {
+      lastSeenAnywhere = vcsaSource.lastSynced;
+    }
+  }
+
   // Determine overall liveness
   const aliveSignals = signals.filter((s) => s.alive);
   const alive = aliveSignals.length > 0;
