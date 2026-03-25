@@ -166,15 +166,17 @@ function ToggleSwitch({
     <button
       type="button"
       onClick={onToggle}
+      role="switch"
+      aria-checked={enabled}
       className={cn(
-        'relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0',
+        'relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 shrink-0',
         enabled ? bgOn : 'bg-slate-600',
       )}
     >
       <span
         className={cn(
-          'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
-          enabled ? 'translate-x-4.5' : 'translate-x-0.5',
+          'inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+          enabled ? 'translate-x-6' : 'translate-x-1',
         )}
       />
     </button>
