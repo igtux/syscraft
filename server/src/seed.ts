@@ -222,6 +222,16 @@ async function seedRecommendationSettings(): Promise<void> {
     { key: 'ping_timeout_ms', value: '3000', description: 'Ping timeout in milliseconds per host.' },
     { key: 'ping_batch_size', value: '10', description: 'Number of concurrent pings per batch.' },
     { key: 'vm_powered_off_threshold_days', value: '14', description: 'Days a VM must be powered off before generating a cleanup recommendation.' },
+    { key: 'rec_register_satellite', value: 'true', description: 'Recommend registering missing hosts in Satellite.' },
+    { key: 'rec_add_checkmk', value: 'true', description: 'Recommend adding missing hosts to Checkmk.' },
+    { key: 'rec_cleanup_dead', value: 'true', description: 'Recommend cleanup for unreachable hosts.' },
+    { key: 'rec_install_agent', value: 'true', description: 'Recommend installing missing agents.' },
+    { key: 'rec_classify_os', value: 'true', description: 'Prompt to classify unknown OS hosts.' },
+    { key: 'rec_add_dns', value: 'true', description: 'Recommend creating missing DNS records.' },
+    { key: 'rec_fix_dns_reverse', value: 'true', description: 'Recommend fixing missing reverse PTR records.' },
+    { key: 'rec_fix_dns_mismatch', value: 'true', description: 'Recommend fixing DNS forward/reverse mismatches.' },
+    { key: 'rec_ip_reuse', value: 'true', description: 'Detect IP reuse and MAC address conflicts.' },
+    { key: 'rec_vm_powered_off', value: 'true', description: 'Flag VMs that have been powered off.' },
   ];
 
   for (const setting of recSettings) {

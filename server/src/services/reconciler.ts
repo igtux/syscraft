@@ -29,6 +29,13 @@ class ReconcilerService {
 
       let recCount = 0;
 
+      // Helper: check if a recommendation type is enabled
+      const isRecEnabled = (type: string) => {
+        const key = `rec_${type}`;
+        const val = settings.get(key);
+        return val !== 'false'; // enabled by default if setting doesn't exist
+      };
+
       // Build command context once
       const cmdCtxBase = {
         satelliteUrl: settings.get('satellite_url') || 'https://satellite.ailab.local',
@@ -97,15 +104,17 @@ class ReconcilerService {
 
         // c. Unknown OS → classify recommendation only
         if (osCategory === 'unknown') {
-          await this.createRecommendation(
-            host.fqdn,
-            'classify_os',
-            'info',
-            `Host "${host.fqdn}" has unknown OS category — classify before generating recommendations.`,
-            'admin',
-            generateCommands('classify_os', cmdCtx, settings)
-          );
-          recCount++;
+          if (isRecEnabled('classify_os')) {
+            await this.createRecommendation(
+              host.fqdn,
+              'classify_os',
+              'info',
+              `Host "${host.fqdn}" has unknown OS category — classify before generating recommendations.`,
+              'admin',
+              generateCommands('classify_os', cmdCtx, settings)
+            );
+            recCount++;
+          }
 
           // Still update host status
           if (host.lastSeen < staleThreshold) {
@@ -119,7 +128,7 @@ class ReconcilerService {
           const expectedSystems = getExpectedSystems(osCategory);
 
           // Missing sources
-          if (expectedSystems.includes('satellite') && !inSatellite) {
+          if (expectedSystems.includes('satellite') && !inSatellite && isRecEnabled('register_satellite')) {
             await this.createRecommendation(
               host.fqdn,
               'register_satellite',
@@ -131,7 +140,7 @@ class ReconcilerService {
             recCount++;
           }
 
-          if (expectedSystems.includes('checkmk') && !inCheckmk) {
+          if (expectedSystems.includes('checkmk') && !inCheckmk && isRecEnabled('add_checkmk')) {
             await this.createRecommendation(
               host.fqdn,
               'add_checkmk',
@@ -145,7 +154,7 @@ class ReconcilerService {
 
           // DNS checks (only if DNS is enabled globally)
           if (dnsEnabled && expectedSystems.includes('dns')) {
-            if (!inDns) {
+            if (!inDns && isRecEnabled('add_dns')) {
               await this.createRecommendation(
                 host.fqdn,
                 'add_dns',
@@ -160,7 +169,7 @@ class ReconcilerService {
               const dnsSource = host.sources.find((s) => s.dataSource.adapter === 'dns');
               if (dnsSource) {
                 const dnsData = dnsSource.rawData as Record<string, any>;
-                if (!dnsData.reverseHostname) {
+                if (!dnsData.reverseHostname && isRecEnabled('fix_dns_reverse')) {
                   await this.createRecommendation(
                     host.fqdn,
                     'fix_dns_reverse',
@@ -171,7 +180,7 @@ class ReconcilerService {
                   );
                   recCount++;
                 }
-                if (dnsData.forwardIp && dnsData.reverseHostname && !dnsData.reverseMatch) {
+                if (dnsData.forwardIp && dnsData.reverseHostname && !dnsData.reverseMatch && isRecEnabled('fix_dns_mismatch')) {
                   await this.createRecommendation(
                     host.fqdn,
                     'fix_dns_mismatch',
@@ -202,7 +211,7 @@ class ReconcilerService {
         }
 
         // e. Dead beyond threshold
-        else if (liveness.deadSinceDays !== null && liveness.deadSinceDays >= cleanupThresholdDays) {
+        else if (liveness.deadSinceDays !== null && liveness.deadSinceDays >= cleanupThresholdDays && isRecEnabled('cleanup_dead')) {
           await this.createRecommendation(
             host.fqdn,
             'cleanup_dead',
@@ -224,7 +233,7 @@ class ReconcilerService {
         }
 
         // g. Check powered-off VMs from vCSA
-        if (vcsaSource) {
+        if (vcsaSource && isRecEnabled('vm_powered_off')) {
           const vcsaData = vcsaSource.rawData as Record<string, any>;
           if (vcsaData.powerState === 'POWERED_OFF') {
             const vmOffThresholdSetting = settings.get('vm_powered_off_threshold_days') || '14';
@@ -249,7 +258,8 @@ class ReconcilerService {
         }
       }
 
-      // g. IP reuse detection
+      // h. IP reuse detection
+      if (isRecEnabled('ip_reuse')) {
       const ipIssues = await detectIpReuse();
       for (const issue of ipIssues) {
         const hostname = issue.fqdn.split('.')[0];
@@ -270,6 +280,7 @@ class ReconcilerService {
         );
         recCount++;
       }
+      } // close isRecEnabled('ip_reuse')
 
       console.log(`[SysCraft] Reconciliation complete: ${recCount} recommendations generated across ${hosts.length} hosts`);
       return recCount;

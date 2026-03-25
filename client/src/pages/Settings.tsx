@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Save,
@@ -21,6 +21,8 @@ import {
   Plug,
   Trash2,
   XCircle,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -55,6 +57,17 @@ interface SettingsForm {
   ping_enabled: string;
   ping_timeout_ms: string;
   ping_batch_size: string;
+  rec_register_satellite: string;
+  rec_add_checkmk: string;
+  rec_cleanup_dead: string;
+  rec_install_agent: string;
+  rec_classify_os: string;
+  rec_add_dns: string;
+  rec_fix_dns_reverse: string;
+  rec_fix_dns_mismatch: string;
+  rec_ip_reuse: string;
+  rec_vm_powered_off: string;
+  vm_powered_off_threshold_days: string;
   [key: string]: string;
 }
 
@@ -77,6 +90,17 @@ const DEFAULT_FORM: SettingsForm = {
   ping_enabled: 'true',
   ping_timeout_ms: '3000',
   ping_batch_size: '10',
+  rec_register_satellite: 'true',
+  rec_add_checkmk: 'true',
+  rec_cleanup_dead: 'true',
+  rec_install_agent: 'true',
+  rec_classify_os: 'true',
+  rec_add_dns: 'true',
+  rec_fix_dns_reverse: 'true',
+  rec_fix_dns_mismatch: 'true',
+  rec_ip_reuse: 'true',
+  rec_vm_powered_off: 'true',
+  vm_powered_off_threshold_days: '14',
 };
 
 function settingsArrayToForm(settings: SettingEntry[]): SettingsForm {
@@ -115,6 +139,107 @@ function PasswordField({
       >
         {visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
       </button>
+    </div>
+  );
+}
+
+/* ---------- Toggle Switch (small) ---------- */
+function ToggleSwitch({
+  enabled,
+  onToggle,
+  color = 'cyan',
+}: {
+  enabled: boolean;
+  onToggle: () => void;
+  color?: string;
+}) {
+  const bgOn =
+    color === 'cyan'
+      ? 'bg-cyan-600'
+      : color === 'purple'
+        ? 'bg-purple-600'
+        : color === 'blue'
+          ? 'bg-blue-600'
+          : 'bg-cyan-600';
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={cn(
+        'relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0',
+        enabled ? bgOn : 'bg-slate-600',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform',
+          enabled ? 'translate-x-4.5' : 'translate-x-0.5',
+        )}
+      />
+    </button>
+  );
+}
+
+/* ---------- Collapsible Card ---------- */
+function CollapsibleCard({
+  title,
+  icon: Icon,
+  iconColor,
+  summary,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  iconColor: string;
+  summary: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (contentRef.current) {
+      setHeight(contentRef.current.scrollHeight);
+    }
+  }, [open, children]);
+
+  return (
+    <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden">
+      {/* Clickable header */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 px-6 py-4 text-left hover:bg-slate-700/20 transition-colors"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={cn('p-2 rounded-lg bg-opacity-20', `bg-${iconColor.replace('text-', '')}/20`)}>
+            <Icon className={cn('w-5 h-5', iconColor)} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white">{title}</p>
+            <p className="text-xs text-slate-400 truncate">{summary}</p>
+          </div>
+        </div>
+        {open ? (
+          <ChevronDown className="w-4 h-4 text-slate-400 shrink-0 transition-transform" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-slate-400 shrink-0 transition-transform" />
+        )}
+      </button>
+
+      {/* Animated body */}
+      <div
+        style={{ maxHeight: open ? (height ?? 2000) : 0 }}
+        className="transition-[max-height] duration-300 ease-in-out overflow-hidden"
+      >
+        <div ref={contentRef} className="px-6 pb-6 pt-2">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -211,6 +336,37 @@ function DataSourcesCard() {
   );
 }
 
+/* ---------- Recommendation toggle row ---------- */
+function RecToggle({
+  label,
+  enabled,
+  onToggle,
+  extra,
+}: {
+  label: string;
+  enabled: boolean;
+  onToggle: () => void;
+  extra?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-sm text-slate-300">{label}</span>
+        {extra}
+      </div>
+      <ToggleSwitch enabled={enabled} onToggle={onToggle} />
+    </div>
+  );
+}
+
+/* ---------- Interval label helper ---------- */
+function intervalLabel(minutes: string): string {
+  const m = parseInt(minutes, 10);
+  if (m < 60) return `${m}m`;
+  if (m < 1440) return `${m / 60}h`;
+  return `${m / 1440}d`;
+}
+
 export default function Settings() {
   const queryClient = useQueryClient();
 
@@ -257,8 +413,22 @@ export default function Settings() {
       ping_enabled: formData.ping_enabled,
       ping_timeout_ms: formData.ping_timeout_ms,
       ping_batch_size: formData.ping_batch_size,
+      rec_register_satellite: formData.rec_register_satellite,
+      rec_add_checkmk: formData.rec_add_checkmk,
+      rec_cleanup_dead: formData.rec_cleanup_dead,
+      rec_install_agent: formData.rec_install_agent,
+      rec_classify_os: formData.rec_classify_os,
+      rec_add_dns: formData.rec_add_dns,
+      rec_fix_dns_reverse: formData.rec_fix_dns_reverse,
+      rec_fix_dns_mismatch: formData.rec_fix_dns_mismatch,
+      rec_ip_reuse: formData.rec_ip_reuse,
+      rec_vm_powered_off: formData.rec_vm_powered_off,
+      vm_powered_off_threshold_days: formData.vm_powered_off_threshold_days,
     });
   };
+
+  const toggle = (key: keyof SettingsForm) =>
+    setFormData((f) => ({ ...f, [key]: f[key] === 'true' ? 'false' : 'true' }));
 
   if (isLoading) {
     return (
@@ -289,11 +459,16 @@ export default function Settings() {
       <Header title="Settings" subtitle="System configuration" />
 
       <div className="p-6 space-y-6 max-w-4xl">
-        {/* Data Sources */}
+        {/* Data Sources — always visible */}
         <DataSourcesCard />
 
-        {/* Satellite Connection */}
-        <Card title="Red Hat Satellite" subtitle="Satellite API connection and credentials">
+        {/* Red Hat Satellite — collapsible */}
+        <CollapsibleCard
+          title="Red Hat Satellite"
+          icon={Globe}
+          iconColor="text-red-400"
+          summary={formData.satellite_url || 'Not configured'}
+        >
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -336,10 +511,15 @@ export default function Settings() {
               </div>
             </div>
           </div>
-        </Card>
+        </CollapsibleCard>
 
-        {/* Checkmk Connection */}
-        <Card title="Checkmk Monitoring" subtitle="Checkmk REST API connection and credentials">
+        {/* Checkmk Monitoring — collapsible */}
+        <CollapsibleCard
+          title="Checkmk Monitoring"
+          icon={Monitor}
+          iconColor="text-green-400"
+          summary={formData.checkmk_url || 'Not configured'}
+        >
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -382,10 +562,19 @@ export default function Settings() {
               </div>
             </div>
           </div>
-        </Card>
+        </CollapsibleCard>
 
-        {/* DNS Server */}
-        <Card title="DNS Server" subtitle="DNS record validation for forward and reverse lookups">
+        {/* DNS Server — collapsible */}
+        <CollapsibleCard
+          title="DNS Server"
+          icon={Wifi}
+          iconColor="text-purple-400"
+          summary={
+            formData.dns_enabled === 'true'
+              ? `Enabled \u00b7 ${formData.dns_server}`
+              : `Disabled \u00b7 ${formData.dns_server}`
+          }
+        >
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -394,12 +583,7 @@ export default function Settings() {
               </div>
               <button
                 type="button"
-                onClick={() =>
-                  setFormData((f) => ({
-                    ...f,
-                    dns_enabled: f.dns_enabled === 'true' ? 'false' : 'true',
-                  }))
-                }
+                onClick={() => toggle('dns_enabled')}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                   formData.dns_enabled === 'true' ? 'bg-purple-600' : 'bg-slate-600'
                 }`}
@@ -477,10 +661,15 @@ export default function Settings() {
               </div>
             </div>
           </div>
-        </Card>
+        </CollapsibleCard>
 
-        {/* Sync Configuration */}
-        <Card title="Sync Configuration" subtitle="Control how often data is synchronized">
+        {/* Sync Configuration — collapsible */}
+        <CollapsibleCard
+          title="Sync Configuration"
+          icon={RefreshCw}
+          iconColor="text-blue-400"
+          summary={`Every ${intervalLabel(formData.sync_interval_minutes)} \u00b7 stale after ${formData.stale_threshold_hours}h`}
+        >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -529,10 +718,15 @@ export default function Settings() {
               </p>
             </div>
           </div>
-        </Card>
+        </CollapsibleCard>
 
-        {/* Recommendations */}
-        <Card title="Recommendations" subtitle="Liveness detection and cleanup thresholds">
+        {/* Recommendations — collapsible */}
+        <CollapsibleCard
+          title="Recommendations"
+          icon={Activity}
+          iconColor="text-cyan-400"
+          summary={`Ping ${formData.ping_enabled === 'true' ? 'enabled' : 'disabled'} \u00b7 cleanup after ${formData.cleanup_threshold_days}d`}
+        >
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -541,12 +735,7 @@ export default function Settings() {
               </div>
               <button
                 type="button"
-                onClick={() =>
-                  setFormData((f) => ({
-                    ...f,
-                    ping_enabled: f.ping_enabled === 'true' ? 'false' : 'true',
-                  }))
-                }
+                onClick={() => toggle('ping_enabled')}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                   formData.ping_enabled === 'true' ? 'bg-cyan-600' : 'bg-slate-600'
                 }`}
@@ -599,10 +788,104 @@ export default function Settings() {
                 <p className="text-xs text-slate-500">Concurrent pings per batch.</p>
               </div>
             </div>
-          </div>
-        </Card>
 
-        {/* Save Button */}
+            {/* Recommendation Rules */}
+            <div className="border-t border-slate-700/50 pt-4 mt-4">
+              <h4 className="text-sm font-semibold text-white mb-3">Recommendation Rules</h4>
+
+              {/* Registration & Monitoring */}
+              <div className="mb-4">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Registration &amp; Monitoring</p>
+                <div className="space-y-1 pl-1">
+                  <RecToggle
+                    label="Register missing hosts in Satellite"
+                    enabled={formData.rec_register_satellite === 'true'}
+                    onToggle={() => toggle('rec_register_satellite')}
+                  />
+                  <RecToggle
+                    label="Add missing hosts to Checkmk"
+                    enabled={formData.rec_add_checkmk === 'true'}
+                    onToggle={() => toggle('rec_add_checkmk')}
+                  />
+                  <RecToggle
+                    label="Install missing agents"
+                    enabled={formData.rec_install_agent === 'true'}
+                    onToggle={() => toggle('rec_install_agent')}
+                  />
+                </div>
+              </div>
+
+              {/* DNS */}
+              <div className="mb-4">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">DNS</p>
+                <div className="space-y-1 pl-1">
+                  <RecToggle
+                    label="Create missing DNS records"
+                    enabled={formData.rec_add_dns === 'true'}
+                    onToggle={() => toggle('rec_add_dns')}
+                  />
+                  <RecToggle
+                    label="Fix missing reverse PTR"
+                    enabled={formData.rec_fix_dns_reverse === 'true'}
+                    onToggle={() => toggle('rec_fix_dns_reverse')}
+                  />
+                  <RecToggle
+                    label="Fix DNS mismatches"
+                    enabled={formData.rec_fix_dns_mismatch === 'true'}
+                    onToggle={() => toggle('rec_fix_dns_mismatch')}
+                  />
+                </div>
+              </div>
+
+              {/* Cleanup & Detection */}
+              <div>
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Cleanup &amp; Detection</p>
+                <div className="space-y-1 pl-1">
+                  <RecToggle
+                    label="Recommend cleanup for dead hosts"
+                    enabled={formData.rec_cleanup_dead === 'true'}
+                    onToggle={() => toggle('rec_cleanup_dead')}
+                  />
+                  <RecToggle
+                    label="Detect IP reuse / MAC conflicts"
+                    enabled={formData.rec_ip_reuse === 'true'}
+                    onToggle={() => toggle('rec_ip_reuse')}
+                  />
+                  <RecToggle
+                    label="Prompt to classify unknown OS"
+                    enabled={formData.rec_classify_os === 'true'}
+                    onToggle={() => toggle('rec_classify_os')}
+                  />
+                  <div className="flex items-center justify-between gap-3 py-1.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm text-slate-300">Flag powered-off VMs</span>
+                      {formData.rec_vm_powered_off === 'true' && (
+                        <select
+                          value={formData.vm_powered_off_threshold_days}
+                          onChange={(e) =>
+                            setFormData((f) => ({ ...f, vm_powered_off_threshold_days: e.target.value }))
+                          }
+                          className="input-field text-xs py-0.5 px-2 w-auto appearance-none cursor-pointer"
+                        >
+                          <option value="7">7 days</option>
+                          <option value="14">14 days</option>
+                          <option value="30">30 days</option>
+                          <option value="60">60 days</option>
+                        </select>
+                      )}
+                    </div>
+                    <ToggleSwitch
+                      enabled={formData.rec_vm_powered_off === 'true'}
+                      onToggle={() => toggle('rec_vm_powered_off')}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CollapsibleCard>
+
+        {/* Save Button — always visible */}
         <div className="flex items-center justify-end gap-3 pt-2">
           {saveMutation.isError && (
             <p className="text-sm text-red-400">Failed to save settings. Please try again.</p>
