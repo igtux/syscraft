@@ -168,52 +168,84 @@ export default function Recommendations() {
       />
 
       <div className="p-6 space-y-4">
-        {/* Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-          {(['critical', 'high', 'medium', 'low', 'info'] as const).map((sev) => {
-            const count = severityCounts[sev] || 0;
-            const colors = severityColor(sev === 'critical' ? 'high' : sev === 'info' ? 'low' : sev);
-            return (
-              <button
-                key={sev}
-                onClick={() => setFilters((f) => ({ ...f, severity: f.severity === sev ? '' : sev, page: 1 }))}
-                className={cn(
-                  'p-3 rounded-lg border text-center transition-all',
-                  filters.severity === sev
-                    ? 'border-blue-500 bg-blue-500/10'
-                    : 'border-slate-700 bg-slate-800 hover:border-slate-600'
-                )}
-              >
-                <p className={cn('text-2xl font-bold tabular-nums', count > 0 ? colors.text : 'text-slate-600')}>
-                  {count}
-                </p>
-                <p className="text-xs text-slate-400 capitalize mt-0.5">{sev}</p>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search by host FQDN..."
-              value={filters.search}
-              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value, page: 1 }))}
-              className="input-field pl-10"
-            />
+        {/* Compact toolbar: severity pills + search + filters + view toggle */}
+        <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-3 space-y-3">
+          {/* Row 1: Severity pills + view toggle */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              {(['critical', 'high', 'medium', 'low', 'info'] as const).map((sev) => {
+                const count = severityCounts[sev] || 0;
+                const colors = severityColor(sev === 'critical' ? 'high' : sev === 'info' ? 'low' : sev);
+                const active = filters.severity === sev;
+                return (
+                  <button
+                    key={sev}
+                    onClick={() => setFilters((f) => ({ ...f, severity: f.severity === sev ? '' : sev, page: 1 }))}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all border',
+                      active
+                        ? 'border-blue-500 bg-blue-500/15 text-blue-400'
+                        : count > 0
+                          ? `border-transparent ${colors.bg} ${colors.text} hover:border-slate-600`
+                          : 'border-transparent bg-slate-700/30 text-slate-600'
+                    )}
+                  >
+                    <span className="tabular-nums">{count}</span>
+                    <span className="capitalize">{sev}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
+              {(filters.type || filters.severity || filters.system || filters.search) && (
+                <button
+                  onClick={() => setFilters((f) => ({ ...f, type: '', severity: '', system: '', search: '', page: 1 }))}
+                  className="text-xs text-blue-400 hover:text-blue-300"
+                >
+                  Clear
+                </button>
+              )}
+              <div className="flex items-center border border-slate-600 rounded overflow-hidden">
+                <button
+                  onClick={() => setViewMode('host')}
+                  className={cn(
+                    'px-2.5 py-1 text-xs font-medium transition-colors',
+                    viewMode === 'host' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                  )}
+                >
+                  Host
+                </button>
+                <button
+                  onClick={() => setViewMode('system')}
+                  className={cn(
+                    'px-2.5 py-1 text-xs font-medium transition-colors',
+                    viewMode === 'system' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                  )}
+                >
+                  System
+                </button>
+              </div>
+            </div>
           </div>
 
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          {/* Row 2: Search + type + system dropdowns */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Search host..."
+                value={filters.search}
+                onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value, page: 1 }))}
+                className="w-full bg-slate-900/50 border border-slate-700/50 rounded px-2.5 py-1.5 pl-8 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-slate-600"
+              />
+            </div>
             <select
               value={filters.type}
               onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value, page: 1 }))}
-              className="input-field pl-10 pr-8 appearance-none cursor-pointer min-w-44"
+              className="bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1.5 text-xs text-slate-400 appearance-none cursor-pointer"
             >
-              <option value="">All Types</option>
+              <option value="">Type</option>
               <option value="register_satellite">Register Satellite</option>
               <option value="add_checkmk">Add Checkmk</option>
               <option value="remove_checkmk">Remove Checkmk</option>
@@ -226,51 +258,19 @@ export default function Recommendations() {
               <option value="fix_dns_reverse">Fix DNS Reverse</option>
               <option value="fix_dns_mismatch">Fix DNS Mismatch</option>
             </select>
+            <select
+              value={filters.system}
+              onChange={(e) => setFilters((f) => ({ ...f, system: e.target.value, page: 1 }))}
+              className="bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1.5 text-xs text-slate-400 appearance-none cursor-pointer"
+            >
+              <option value="">System</option>
+              <option value="satellite">Satellite</option>
+              <option value="checkmk">Checkmk</option>
+              <option value="dns">DNS</option>
+              <option value="host">Host</option>
+              <option value="admin">Admin</option>
+            </select>
           </div>
-
-          <select
-            value={filters.system}
-            onChange={(e) => setFilters((f) => ({ ...f, system: e.target.value, page: 1 }))}
-            className="input-field appearance-none cursor-pointer min-w-36"
-          >
-            <option value="">All Systems</option>
-            <option value="satellite">Satellite</option>
-            <option value="checkmk">Checkmk</option>
-            <option value="dns">DNS</option>
-            <option value="host">Host</option>
-            <option value="admin">Admin</option>
-          </select>
-
-          {/* View Toggle */}
-          <div className="flex items-center border border-slate-600 rounded-lg overflow-hidden">
-            <button
-              onClick={() => setViewMode('host')}
-              className={cn(
-                'px-3 py-2 text-xs font-medium transition-colors',
-                viewMode === 'host' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-              )}
-            >
-              Per Host
-            </button>
-            <button
-              onClick={() => setViewMode('system')}
-              className={cn(
-                'px-3 py-2 text-xs font-medium transition-colors',
-                viewMode === 'system' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-              )}
-            >
-              Per System
-            </button>
-          </div>
-
-          {(filters.type || filters.severity || filters.system || filters.search) && (
-            <button
-              onClick={() => setFilters((f) => ({ ...f, type: '', severity: '', system: '', search: '', page: 1 }))}
-              className="btn-ghost text-sm text-blue-400"
-            >
-              Clear Filters
-            </button>
-          )}
         </div>
 
         {/* Content */}
