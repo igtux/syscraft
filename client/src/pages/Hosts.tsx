@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Search,
-  Filter,
   ChevronLeft,
   ChevronRight,
   LayoutGrid,
@@ -160,87 +159,101 @@ export default function Hosts() {
       <Header title="Host Inventory" subtitle={`${total} hosts across all sources`} />
 
       <div className="p-6 space-y-4">
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Search */}
-          <div className="relative flex-1 min-w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search hosts by FQDN or IP..."
-              value={params.search}
-              onChange={(e) => updateParams({ search: e.target.value, page: 1 })}
-              className="input-field pl-10"
-            />
+        {/* Compact toolbar */}
+        <div className="bg-slate-800/50 rounded-lg border border-slate-700/50 p-3 space-y-3">
+          {/* Row 1: Status pills + view toggle */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              {(['active', 'partial', 'stale', 'new'] as const).map((st) => {
+                const active = params.status === st;
+                const colors: Record<string, string> = {
+                  active: 'bg-green-500/10 text-green-400',
+                  partial: 'bg-amber-500/10 text-amber-400',
+                  stale: 'bg-red-500/10 text-red-400',
+                  new: 'bg-blue-500/10 text-blue-400',
+                };
+                return (
+                  <button
+                    key={st}
+                    onClick={() => updateParams({ status: params.status === st ? '' : st, page: 1 })}
+                    className={cn(
+                      'px-2.5 py-1 rounded-full text-xs font-medium transition-all border capitalize',
+                      active
+                        ? 'border-blue-500 bg-blue-500/15 text-blue-400'
+                        : `border-transparent ${colors[st]} hover:border-slate-600`
+                    )}
+                  >
+                    {st}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
+              {(params.status || params.source || params.osCategory || params.search) && (
+                <button
+                  onClick={() => updateParams({ status: '', source: '', osCategory: '', search: '', page: 1 })}
+                  className="text-xs text-blue-400 hover:text-blue-300"
+                >
+                  Clear
+                </button>
+              )}
+              <div className="flex items-center border border-slate-600 rounded overflow-hidden">
+                <button
+                  onClick={() => setViewMode('table')}
+                  className={cn(
+                    'p-1.5 transition-colors',
+                    viewMode === 'table' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                  )}
+                >
+                  <List className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={cn(
+                    'p-1.5 transition-colors',
+                    viewMode === 'grid' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                  )}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Status Filter */}
-          <div className="relative">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          {/* Row 2: Search + filters */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Search FQDN or IP..."
+                value={params.search}
+                onChange={(e) => updateParams({ search: e.target.value, page: 1 })}
+                className="w-full bg-slate-900/50 border border-slate-700/50 rounded px-2.5 py-1.5 pl-8 text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-slate-600"
+              />
+            </div>
             <select
-              value={params.status}
-              onChange={(e) => updateParams({ status: e.target.value, page: 1 })}
-              className="input-field pl-10 pr-8 appearance-none cursor-pointer min-w-40"
+              value={params.source}
+              onChange={(e) => updateParams({ source: e.target.value, page: 1 })}
+              className="bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1.5 text-xs text-slate-400 appearance-none cursor-pointer"
             >
-              <option value="">All Statuses</option>
-              <option value="active">Active</option>
-              <option value="partial">Partial</option>
-              <option value="stale">Stale</option>
-              <option value="new">New</option>
-              <option value="decommissioning">Decommissioning</option>
+              <option value="">Source</option>
+              <option value="satellite">Satellite</option>
+              <option value="checkmk">Checkmk</option>
+              <option value="dns">DNS</option>
+              <option value="vcsa">vCSA</option>
             </select>
-          </div>
-
-          {/* Source Filter */}
-          <select
-            value={params.source}
-            onChange={(e) => updateParams({ source: e.target.value, page: 1 })}
-            className="input-field appearance-none cursor-pointer min-w-36"
-          >
-            <option value="">All Sources</option>
-            <option value="satellite">Satellite</option>
-            <option value="checkmk">Checkmk</option>
-            <option value="dns">DNS</option>
-            <option value="vcsa">vCSA</option>
-          </select>
-
-          {/* OS Category Filter */}
-          <select
-            value={params.osCategory}
-            onChange={(e) => updateParams({ osCategory: e.target.value, page: 1 })}
-            className="input-field appearance-none cursor-pointer min-w-36"
-          >
-            <option value="">All OS Types</option>
-            <option value="linux">Linux</option>
-            <option value="windows">Windows</option>
-            <option value="appliance">Appliance</option>
-            <option value="unknown">Unknown</option>
-          </select>
-
-          {/* View Toggle */}
-          <div className="flex items-center border border-slate-600 rounded-lg overflow-hidden">
-            <button
-              onClick={() => setViewMode('table')}
-              className={cn(
-                'p-2.5 transition-colors',
-                viewMode === 'table'
-                  ? 'bg-slate-700 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-              )}
+            <select
+              value={params.osCategory}
+              onChange={(e) => updateParams({ osCategory: e.target.value, page: 1 })}
+              className="bg-slate-900/50 border border-slate-700/50 rounded px-2 py-1.5 text-xs text-slate-400 appearance-none cursor-pointer"
             >
-              <List className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('grid')}
-              className={cn(
-                'p-2.5 transition-colors',
-                viewMode === 'grid'
-                  ? 'bg-slate-700 text-white'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-              )}
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
+              <option value="">OS Type</option>
+              <option value="linux">Linux</option>
+              <option value="windows">Windows</option>
+              <option value="appliance">Appliance</option>
+              <option value="unknown">Unknown</option>
+            </select>
           </div>
         </div>
 
