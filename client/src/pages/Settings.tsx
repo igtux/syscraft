@@ -23,6 +23,9 @@ import {
   XCircle,
   ChevronDown,
   ChevronRight,
+  Bell,
+  Plus,
+  Send,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import Card from '@/components/ui/Card';
@@ -35,8 +38,14 @@ import {
   testDataSource,
   updateDataSource,
   testSettingsConnection,
+  getWebhooks,
+  createWebhook,
+  updateWebhook,
+  deleteWebhook,
+  testWebhook,
   type SettingEntry,
   type DataSourceEntry,
+  type WebhookEntry,
 } from '@/lib/api';
 
 interface SettingsForm {
@@ -341,6 +350,304 @@ function DataSourcesCard() {
   );
 }
 
+/* ---------- Webhooks Card ---------- */
+
+const WEBHOOK_EVENTS = [
+  'recommendation_critical',
+  'recommendation_high',
+  'source_down',
+  'host_stale',
+  'host_discovered',
+  'liveness_changed',
+  'sync_completed',
+  'daily_summary',
+] as const;
+
+function WebhooksCard() {
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [testingId, setTestingId] = useState<number | null>(null);
+  const [testResult, setTestResult] = useState<{ id: number; success: boolean; error?: string } | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [form, setForm] = useState({
+    name: '',
+    url: '',
+    secret: '',
+    method: 'POST',
+    events: [] as string[],
+    retryCount: 3,
+  });
+
+  const { data: webhooksResp } = useQuery({
+    queryKey: ['webhooks'],
+    queryFn: getWebhooks,
+  });
+
+  const createMut = useMutation({
+    mutationFn: (data: Partial<WebhookEntry>) => createWebhook(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+      setShowForm(false);
+      setForm({ name: '', url: '', secret: '', method: 'POST', events: [], retryCount: 3 });
+    },
+  });
+
+  const toggleMut = useMutation({
+    mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => updateWebhook(id, { enabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['webhooks'] }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => deleteWebhook(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['webhooks'] });
+      setDeletingId(null);
+    },
+  });
+
+  const handleTest = async (id: number) => {
+    setTestingId(id);
+    setTestResult(null);
+    try {
+      const result = await testWebhook(id);
+      setTestResult({ id, success: result.success, error: result.success ? undefined : result.response });
+    } catch {
+      setTestResult({ id, success: false, error: 'Test request failed' });
+    }
+    setTestingId(null);
+  };
+
+  const handleAdd = () => {
+    if (!form.name || !form.url) return;
+    createMut.mutate({
+      name: form.name,
+      url: form.url,
+      secret: form.secret,
+      method: form.method,
+      events: form.events,
+      retryCount: form.retryCount,
+      enabled: true,
+    });
+  };
+
+  const toggleEvent = (event: string) => {
+    setForm((f) => ({
+      ...f,
+      events: f.events.includes(event) ? f.events.filter((e) => e !== event) : [...f.events, event],
+    }));
+  };
+
+  const webhooks = webhooksResp?.data ?? [];
+
+  const formatTime = (iso: string | null) => {
+    if (!iso) return 'Never';
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    return `${Math.floor(diffHr / 24)}d ago`;
+  };
+
+  const truncateUrl = (url: string, max = 40) => (url.length > max ? url.slice(0, max) + '...' : url);
+
+  return (
+    <div className="space-y-3">
+      {/* Webhook list */}
+      {webhooks.map((wh) => (
+        <div
+          key={wh.id}
+          className={cn(
+            'flex items-center justify-between p-4 rounded-lg border transition-colors',
+            wh.enabled ? 'bg-slate-700/20 border-slate-700/50' : 'bg-slate-800/50 border-slate-700/30 opacity-60',
+          )}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={cn('p-2 rounded-lg', wh.enabled ? 'bg-amber-500/20' : 'bg-slate-700')}>
+              <Bell className={cn('w-4 h-4', wh.enabled ? 'text-amber-400' : 'text-slate-500')} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-white truncate">{wh.name}</p>
+                <span className="text-[10px] px-1.5 py-0.5 bg-slate-700 text-slate-400 rounded font-mono">{wh.method}</span>
+              </div>
+              <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500">
+                <span className="truncate" title={wh.url}>{truncateUrl(wh.url)}</span>
+                <span>{wh.events.length} events</span>
+                <span>Fired: {formatTime(wh.lastFiredAt)}</span>
+                {wh.lastStatus !== null && (
+                  <span className={cn(
+                    'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium',
+                    wh.lastStatus >= 200 && wh.lastStatus < 300
+                      ? 'bg-green-500/20 text-green-400'
+                      : 'bg-red-500/20 text-red-400',
+                  )}>
+                    {wh.lastStatus}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {testResult?.id === wh.id && (
+              <span className={cn('text-xs', testResult.success ? 'text-green-400' : 'text-red-400')}>
+                {testResult.success ? 'OK' : testResult.error || 'Failed'}
+              </span>
+            )}
+            <button
+              onClick={() => handleTest(wh.id)}
+              disabled={testingId === wh.id}
+              className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors"
+              title="Test webhook"
+            >
+              {testingId === wh.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            </button>
+            {deletingId === wh.id ? (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => deleteMut.mutate(wh.id)}
+                  className="text-[10px] px-2 py-1 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30 transition-colors"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => setDeletingId(null)}
+                  className="text-[10px] px-2 py-1 bg-slate-700 text-slate-400 rounded hover:bg-slate-600 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setDeletingId(wh.id)}
+                className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"
+                title="Delete webhook"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+            <ToggleSwitch
+              enabled={wh.enabled}
+              onToggle={() => toggleMut.mutate({ id: wh.id, enabled: !wh.enabled })}
+              color="cyan"
+            />
+          </div>
+        </div>
+      ))}
+
+      {webhooks.length === 0 && !showForm && (
+        <p className="text-sm text-slate-500 text-center py-4">No webhooks configured.</p>
+      )}
+
+      {/* Add form */}
+      {showForm ? (
+        <div className="p-4 rounded-lg border border-slate-700/50 bg-slate-800/50 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-400">Name</label>
+              <input
+                type="text"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                className="input-field w-full"
+                placeholder="My Webhook"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-400">URL</label>
+              <input
+                type="text"
+                value={form.url}
+                onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
+                className="input-field w-full"
+                placeholder="https://example.com/hook"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-400">Secret</label>
+              <PasswordField
+                value={form.secret}
+                onChange={(v) => setForm((f) => ({ ...f, secret: v }))}
+                placeholder="HMAC secret (optional)"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-400">Method</label>
+              <select
+                value={form.method}
+                onChange={(e) => setForm((f) => ({ ...f, method: e.target.value }))}
+                className="input-field w-full appearance-none cursor-pointer"
+              >
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-slate-400">Retry Count</label>
+              <input
+                type="number"
+                min={0}
+                max={10}
+                value={form.retryCount}
+                onChange={(e) => setForm((f) => ({ ...f, retryCount: parseInt(e.target.value, 10) || 0 }))}
+                className="input-field w-full"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-slate-400">Events</label>
+            <div className="flex flex-wrap gap-2">
+              {WEBHOOK_EVENTS.map((ev) => (
+                <label key={ev} className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.events.includes(ev)}
+                    onChange={() => toggleEvent(ev)}
+                    className="rounded border-slate-600 bg-slate-700 text-cyan-500 focus:ring-cyan-500/30 h-3.5 w-3.5"
+                  />
+                  {ev.replace(/_/g, ' ')}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              onClick={() => setShowForm(false)}
+              className="text-sm text-slate-400 hover:text-slate-200 px-3 py-1.5 rounded transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAdd}
+              disabled={createMut.isPending || !form.name || !form.url}
+              className="btn-primary text-sm flex items-center gap-1.5 px-3 py-1.5"
+            >
+              {createMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              Add
+            </button>
+          </div>
+          {createMut.isError && (
+            <p className="text-xs text-red-400">Failed to create webhook.</p>
+          )}
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowForm(true)}
+          className="w-full flex items-center justify-center gap-2 p-3 rounded-lg border border-dashed border-slate-700/50 text-sm text-slate-400 hover:text-cyan-400 hover:border-cyan-500/30 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Add Webhook
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ---------- Recommendation toggle row ---------- */
 function RecToggle({
   label,
@@ -378,6 +685,11 @@ export default function Settings() {
   const { data: settingsResponse, isLoading, error } = useQuery({
     queryKey: ['settings'],
     queryFn: getSettings,
+  });
+
+  const { data: webhooksResp } = useQuery({
+    queryKey: ['webhooks'],
+    queryFn: getWebhooks,
   });
 
   const [formData, setFormData] = useState<SettingsForm>({ ...DEFAULT_FORM });
@@ -496,6 +808,16 @@ export default function Settings() {
       <div className="p-6 space-y-6 max-w-4xl">
         {/* Data Sources — always visible */}
         <DataSourcesCard />
+
+        {/* Webhooks — collapsible */}
+        <CollapsibleCard
+          title="Webhooks"
+          icon={Bell}
+          iconColor="text-amber-400"
+          summary={`${(webhooksResp?.data ?? []).filter((w) => w.enabled).length} enabled`}
+        >
+          <WebhooksCard />
+        </CollapsibleCard>
 
         {/* Red Hat Satellite — collapsible */}
         <CollapsibleCard

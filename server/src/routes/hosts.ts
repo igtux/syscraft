@@ -366,6 +366,42 @@ router.put(
   }
 );
 
+// GET /api/hosts/:fqdn/timeline — host event timeline
+router.get('/:fqdn/timeline', authenticate, async (req: Request, res: Response) => {
+  try {
+    const fqdn = String(req.params.fqdn);
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
+    const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '50'), 10)));
+
+    const [events, total] = await Promise.all([
+      prisma.hostEvent.findMany({
+        where: { hostFqdn: fqdn },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.hostEvent.count({ where: { hostFqdn: fqdn } }),
+    ]);
+
+    res.json({
+      data: events.map((e: any) => ({
+        id: e.id,
+        hostFqdn: e.hostFqdn,
+        event: e.event,
+        detail: e.detail,
+        createdAt: e.createdAt.toISOString(),
+      })),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    });
+  } catch (error) {
+    console.log('[SysCraft] Host timeline error:', (error as Error).message);
+    res.status(500).json({ error: 'Failed to fetch host timeline.' });
+  }
+});
+
 // GET /api/hosts/:fqdn/agents — get agent compliance for a host
 router.get('/:fqdn/agents', authenticate, async (req: Request, res: Response) => {
   try {

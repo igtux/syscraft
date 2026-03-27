@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { authenticate, authorize } from '../middleware/auth.js';
+import { hostEventService } from '../services/host-events.js';
 import type { CommandEntry, Recommendation } from '../types/index.js';
 
 const router = Router();
@@ -172,6 +173,7 @@ router.put('/:id/dismiss', authenticate, authorize('admin'), async (req: Request
       where: { id },
       data: { status: 'dismissed' },
     });
+    hostEventService.emit(rec.hostFqdn, 'recommendation_dismissed', { type: rec.type, severity: rec.severity, id: rec.id });
     res.json(parseRec(rec));
   } catch (error) {
     console.log('[SysCraft] Recommendation dismiss error:', (error as Error).message);
@@ -187,6 +189,7 @@ router.put('/:id/resolve', authenticate, authorize('admin'), async (req: Request
       where: { id },
       data: { status: 'resolved' },
     });
+    hostEventService.emit(rec.hostFqdn, 'recommendation_resolved', { type: rec.type, severity: rec.severity, id: rec.id });
     res.json(parseRec(rec));
   } catch (error) {
     console.log('[SysCraft] Recommendation resolve error:', (error as Error).message);

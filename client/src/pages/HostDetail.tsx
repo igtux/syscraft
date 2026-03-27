@@ -26,6 +26,7 @@ import Card from '@/components/ui/Card';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Spinner from '@/components/ui/Spinner';
 import CommandBlock from '@/components/ui/CommandBlock';
+import HostTimeline from '@/components/host/HostTimeline';
 import { cn, formatDate, formatRelative, scoreColor, severityColor } from '@/lib/utils';
 import { getHost, type HostDetail as HostDetailType, type Recommendation } from '@/lib/api';
 
@@ -278,6 +279,9 @@ export default function HostDetail() {
 
         {/* Recommendations */}
         <RecommendationsSection recommendations={host.recommendations} />
+
+        {/* Timeline */}
+        <HostTimeline fqdn={host.fqdn} />
       </div>
     </div>
   );

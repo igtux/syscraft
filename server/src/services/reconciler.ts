@@ -3,11 +3,14 @@ import { isHostAlive } from './ping.js';
 import { classifyOs, getExpectedSystems } from './os-classifier.js';
 import { detectIpReuse } from './ip-reuse.js';
 import { generateCommands } from './command-generator.js';
+import { hostEventService } from './host-events.js';
 import type { Discrepancy, RecommendationType, CommandEntry } from '../types/index.js';
 
 const prisma = new PrismaClient();
 
 class ReconcilerService {
+  private existingRecKeys: Set<string> = new Set();
+
   async reconcile(): Promise<number> {
     try {
       // Load settings
@@ -16,6 +19,13 @@ class ReconcilerService {
       const cleanupThresholdDays = parseInt(settings.get('cleanup_threshold_days') || '7', 10);
       const staleThresholdHours = parseInt(settings.get('stale_threshold_hours') || '72', 10);
       const staleThreshold = new Date(Date.now() - staleThresholdHours * 60 * 60 * 1000);
+
+      // Snapshot existing open recommendations for dedup
+      const existingRecs = await prisma.recommendation.findMany({
+        where: { status: 'open' },
+        select: { hostFqdn: true, type: true },
+      });
+      this.existingRecKeys = new Set(existingRecs.map(r => `${r.hostFqdn}::${r.type}`));
 
       // Clear all open recommendations (new cycle replaces old)
       await prisma.recommendation.deleteMany({ where: { status: 'open' } });
@@ -73,6 +83,9 @@ class ReconcilerService {
         }
 
         const osCategory = classifyOs(osName, agentType, host.fqdn, vcsaGuestFamily);
+        if (host.osCategory !== osCategory) {
+          hostEventService.emit(host.fqdn, 'os_changed', { oldCategory: host.osCategory, newCategory: osCategory });
+        }
         await prisma.host.update({
           where: { fqdn: host.fqdn },
           data: { osCategory },
@@ -118,6 +131,9 @@ class ReconcilerService {
 
           // Still update host status
           if (host.lastSeen < staleThreshold) {
+            if (host.status !== 'stale') {
+              hostEventService.emit(host.fqdn, 'status_changed', { oldStatus: host.status, newStatus: 'stale' });
+            }
             await prisma.host.update({ where: { fqdn: host.fqdn }, data: { status: 'stale' } });
           }
           continue;
@@ -202,10 +218,19 @@ class ReconcilerService {
 
           // Update host status
           if (inSatellite && inCheckmk) {
+            if (host.status !== 'active') {
+              hostEventService.emit(host.fqdn, 'status_changed', { oldStatus: host.status, newStatus: 'active' });
+            }
             await prisma.host.update({ where: { fqdn: host.fqdn }, data: { status: 'active' } });
           } else if (inSatellite || inCheckmk) {
+            if (host.status !== 'partial') {
+              hostEventService.emit(host.fqdn, 'status_changed', { oldStatus: host.status, newStatus: 'partial' });
+            }
             await prisma.host.update({ where: { fqdn: host.fqdn }, data: { status: 'partial' } });
           } else {
+            if (host.status !== 'new') {
+              hostEventService.emit(host.fqdn, 'status_changed', { oldStatus: host.status, newStatus: 'new' });
+            }
             await prisma.host.update({ where: { fqdn: host.fqdn }, data: { status: 'new' } });
           }
         }
@@ -222,12 +247,18 @@ class ReconcilerService {
           );
           recCount++;
 
+          if (host.status !== 'stale') {
+            hostEventService.emit(host.fqdn, 'status_changed', { oldStatus: host.status, newStatus: 'stale' });
+          }
           await prisma.host.update({ where: { fqdn: host.fqdn }, data: { status: 'stale' } });
         }
 
         // f. Dead within threshold (stale but not cleanup yet)
         else if (!liveness.alive) {
           if (host.lastSeen < staleThreshold) {
+            if (host.status !== 'stale') {
+              hostEventService.emit(host.fqdn, 'status_changed', { oldStatus: host.status, newStatus: 'stale' });
+            }
             await prisma.host.update({ where: { fqdn: host.fqdn }, data: { status: 'stale' } });
           }
         }
@@ -309,6 +340,11 @@ class ReconcilerService {
         status: 'open',
       },
     });
+
+    const recKey = `${hostFqdn}::${type}`;
+    if (!this.existingRecKeys.has(recKey)) {
+      hostEventService.emit(hostFqdn, 'recommendation_created', { type, severity, systemTarget, description });
+    }
   }
 
   // Backward compat: map recommendations back to old discrepancy format

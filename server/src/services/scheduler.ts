@@ -8,6 +8,8 @@ import { vcsaService } from './vcsa.js';
 import { reconcilerService } from './reconciler.js';
 import { baselineService } from './baseline.js';
 import { pingAllHosts } from './ping.js';
+import { hostEventService } from './host-events.js';
+import { webhookService } from './webhook.js';
 import type { SyncResult } from '../types/index.js';
 
 const prisma = new PrismaClient();
@@ -22,6 +24,7 @@ interface DataSourceMap {
 
 class SchedulerService {
   private cronJob: cron.ScheduledTask | null = null;
+  private dailyCron: cron.ScheduledTask | null = null;
   private syncInProgress = false;
 
   start(): void {
@@ -31,6 +34,37 @@ class SchedulerService {
     this.cronJob = cron.schedule(cronExpression, async () => {
       console.log('[SysCraft] Scheduled sync triggered');
       await this.runSync();
+    });
+
+    // Daily summary webhook + event retention cleanup (midnight)
+    this.dailyCron = cron.schedule('0 0 * * *', async () => {
+      console.log('[SysCraft] Running daily summary + cleanup...');
+      try {
+        // Fire daily_summary webhook
+        const [hostCounts, recCounts] = await Promise.all([
+          prisma.host.groupBy({ by: ['status'], _count: true }),
+          prisma.recommendation.groupBy({ by: ['severity'], where: { status: 'open' }, _count: true }),
+        ]);
+        const summary: Record<string, any> = { hosts: {}, recommendations: {} };
+        for (const h of hostCounts) summary.hosts[h.status] = h._count;
+        for (const r of recCounts) summary.recommendations[r.severity] = r._count;
+        summary.timestamp = new Date().toISOString();
+        await webhookService.fire('daily_summary', summary);
+
+        // Event retention cleanup (default 30 days)
+        const retentionSetting = await prisma.setting.findUnique({ where: { key: 'event_retention_days' } });
+        const retentionDays = parseInt(retentionSetting?.value || '30', 10);
+        const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+        const [deletedEvents, deletedLogs] = await Promise.all([
+          prisma.hostEvent.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+          prisma.webhookLog.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+        ]);
+        if (deletedEvents.count > 0 || deletedLogs.count > 0) {
+          console.log(`[SysCraft] Retention cleanup: ${deletedEvents.count} events + ${deletedLogs.count} webhook logs older than ${retentionDays} days`);
+        }
+      } catch (err) {
+        console.log('[SysCraft] Daily summary error:', (err as Error).message);
+      }
     });
 
     // Run initial sync on startup after a short delay
@@ -46,8 +80,12 @@ class SchedulerService {
     if (this.cronJob) {
       this.cronJob.stop();
       this.cronJob = null;
-      console.log('[SysCraft] Scheduler stopped');
     }
+    if (this.dailyCron) {
+      this.dailyCron.stop();
+      this.dailyCron = null;
+    }
+    console.log('[SysCraft] Scheduler stopped');
   }
 
   isRunning(): boolean {
@@ -184,6 +222,14 @@ class SchedulerService {
       }
       console.log(`[SysCraft] Compliance checks complete for ${allHosts.length} hosts`);
 
+      // Fire sync_completed webhook
+      webhookService.fire('sync_completed', {
+        satellite: { hostsFound: satResult.hostsFound, hostsUpdated: satResult.hostsUpdated },
+        checkmk: { hostsFound: cmkResult.hostsFound, hostsUpdated: cmkResult.hostsUpdated },
+        dns: dnsResult ? { hostsFound: dnsResult.hostsFound, hostsUpdated: dnsResult.hostsUpdated } : null,
+        vcsa: vcsaResult ? { hostsFound: vcsaResult.hostsFound, hostsUpdated: vcsaResult.hostsUpdated } : null,
+      }).catch(() => {});
+
       // Log audit event — details is Json, pass object directly
       const auditDetails: Record<string, unknown> = {
         satellite: { hostsFound: satResult.hostsFound, hostsUpdated: satResult.hostsUpdated },
@@ -223,6 +269,17 @@ class SchedulerService {
         startedAt: new Date(),
       },
     });
+
+    // Batch load existing hosts for event diffing
+    const existingHosts = new Map<string, { ip: string; macAddress: string }>();
+    const allHosts = await prisma.host.findMany({ select: { fqdn: true, ip: true, macAddress: true } });
+    for (const h of allHosts) existingHosts.set(h.fqdn, { ip: h.ip, macAddress: h.macAddress });
+
+    const existingSources = new Set<string>();
+    if (dataSourceId) {
+      const sources = await prisma.hostSource.findMany({ where: { dataSourceId }, select: { hostFqdn: true } });
+      for (const s of sources) existingSources.add(s.hostFqdn);
+    }
 
     let hostsFound = 0;
     let hostsUpdated = 0;
@@ -273,6 +330,19 @@ class SchedulerService {
             },
           });
 
+          // Emit host events by comparing with pre-loaded state
+          const existing = existingHosts.get(fqdn);
+          if (!existing) {
+            hostEventService.emit(fqdn, 'host_discovered', { source: 'satellite' });
+          } else {
+            if (existing.ip && ip && existing.ip !== ip) {
+              hostEventService.emit(fqdn, 'ip_changed', { oldIp: existing.ip, newIp: ip });
+            }
+            if (existing.macAddress && macAddress && existing.macAddress !== macAddress) {
+              hostEventService.emit(fqdn, 'mac_changed', { oldMac: existing.macAddress, newMac: macAddress });
+            }
+          }
+
           // Upsert host source — rawData and normalizedData are Json fields, pass objects directly
           if (dataSourceId != null) {
             const sourceId = satHost?.hostId ? String(satHost.hostId) : fqdn;
@@ -304,6 +374,10 @@ class SchedulerService {
                 lastSynced: new Date(),
               },
             });
+
+            if (!existingSources.has(fqdn)) {
+              hostEventService.emit(fqdn, 'source_added', { source: 'satellite' });
+            }
           }
 
           hostsUpdated++;
@@ -365,6 +439,8 @@ class SchedulerService {
         });
       }
 
+      webhookService.fire('source_down', { source: 'satellite', error: (error as Error).message }).catch(() => {});
+
       console.log(`[SysCraft] Satellite sync failed: ${msg}`);
       return { source: 'satellite', hostsFound, hostsUpdated, errors, duration };
     }
@@ -380,6 +456,17 @@ class SchedulerService {
         startedAt: new Date(),
       },
     });
+
+    // Batch load existing hosts for event diffing
+    const existingHosts = new Map<string, { ip: string; macAddress: string }>();
+    const allHosts = await prisma.host.findMany({ select: { fqdn: true, ip: true, macAddress: true } });
+    for (const h of allHosts) existingHosts.set(h.fqdn, { ip: h.ip, macAddress: h.macAddress });
+
+    const existingSources = new Set<string>();
+    if (dataSourceId) {
+      const sources = await prisma.hostSource.findMany({ where: { dataSourceId }, select: { hostFqdn: true } });
+      for (const s of sources) existingSources.add(s.hostFqdn);
+    }
 
     let hostsFound = 0;
     let hostsUpdated = 0;
@@ -410,6 +497,12 @@ class SchedulerService {
               lastSeen: new Date(),
             },
           });
+
+          // Emit host events by comparing with pre-loaded state
+          const existing = existingHosts.get(fqdn);
+          if (!existing) {
+            hostEventService.emit(fqdn, 'host_discovered', { source: 'checkmk' });
+          }
 
           // Upsert host source — rawData and normalizedData are Json fields, pass objects directly
           if (dataSourceId != null) {
@@ -445,6 +538,10 @@ class SchedulerService {
                 lastSynced: new Date(),
               },
             });
+
+            if (!existingSources.has(fqdn)) {
+              hostEventService.emit(fqdn, 'source_added', { source: 'checkmk' });
+            }
           }
 
           hostsUpdated++;
@@ -504,6 +601,8 @@ class SchedulerService {
         });
       }
 
+      webhookService.fire('source_down', { source: 'checkmk', error: (error as Error).message }).catch(() => {});
+
       console.log(`[SysCraft] Checkmk sync failed: ${msg}`);
       return { source: 'checkmk', hostsFound, hostsUpdated, errors, duration };
     }
@@ -538,6 +637,17 @@ class SchedulerService {
         startedAt: new Date(),
       },
     });
+
+    // Batch load existing hosts for event diffing
+    const existingHosts = new Map<string, { ip: string; macAddress: string }>();
+    const allHosts = await prisma.host.findMany({ select: { fqdn: true, ip: true, macAddress: true } });
+    for (const h of allHosts) existingHosts.set(h.fqdn, { ip: h.ip, macAddress: h.macAddress });
+
+    const existingSources = new Set<string>();
+    if (dataSourceId) {
+      const sources = await prisma.hostSource.findMany({ where: { dataSourceId }, select: { hostFqdn: true } });
+      for (const s of sources) existingSources.add(s.hostFqdn);
+    }
 
     let hostsFound = 0;
     let hostsUpdated = 0;
@@ -584,9 +694,17 @@ class SchedulerService {
                 lastSynced: new Date(),
               },
             });
+
+            if (!existingSources.has(result.fqdn)) {
+              hostEventService.emit(result.fqdn, 'source_added', { source: 'dns' });
+            }
+
             hostsUpdated++;
           } else if (dataSourceId != null) {
             // No A record — remove DNS source if it existed
+            if (existingSources.has(result.fqdn)) {
+              hostEventService.emit(result.fqdn, 'source_removed', { source: 'dns' });
+            }
             await prisma.hostSource.deleteMany({
               where: {
                 hostFqdn: result.fqdn,
@@ -650,6 +768,8 @@ class SchedulerService {
         });
       }
 
+      webhookService.fire('source_down', { source: 'dns', error: (error as Error).message }).catch(() => {});
+
       console.log(`[SysCraft] DNS sync failed: ${msg}`);
       return { source: 'dns', hostsFound, hostsUpdated, errors, duration };
     }
@@ -679,6 +799,17 @@ class SchedulerService {
         startedAt: new Date(),
       },
     });
+
+    // Batch load existing hosts for event diffing
+    const existingHosts = new Map<string, { ip: string; macAddress: string }>();
+    const allHosts = await prisma.host.findMany({ select: { fqdn: true, ip: true, macAddress: true } });
+    for (const h of allHosts) existingHosts.set(h.fqdn, { ip: h.ip, macAddress: h.macAddress });
+
+    const existingSources = new Set<string>();
+    if (dataSourceId) {
+      const sources = await prisma.hostSource.findMany({ where: { dataSourceId }, select: { hostFqdn: true } });
+      for (const s of sources) existingSources.add(s.hostFqdn);
+    }
 
     let hostsFound = 0;
     let hostsUpdated = 0;
@@ -758,6 +889,19 @@ class SchedulerService {
             },
           });
 
+          // Emit host events by comparing with pre-loaded state
+          const existing = existingHosts.get(fqdn);
+          if (!existing) {
+            hostEventService.emit(fqdn, 'host_discovered', { source: 'vcsa' });
+          } else {
+            if (existing.ip && ip && existing.ip !== ip) {
+              hostEventService.emit(fqdn, 'ip_changed', { oldIp: existing.ip, newIp: ip });
+            }
+            if (existing.macAddress && mac && existing.macAddress !== mac) {
+              hostEventService.emit(fqdn, 'mac_changed', { oldMac: existing.macAddress, newMac: mac });
+            }
+          }
+
           // Upsert host source — rawData and normalizedData are Json fields, pass objects directly
           const rawData = {
             vmName: vm.vmName,
@@ -803,6 +947,10 @@ class SchedulerService {
               lastSynced: new Date(),
             },
           });
+
+          if (!existingSources.has(fqdn)) {
+            hostEventService.emit(fqdn, 'source_added', { source: 'vcsa' });
+          }
 
           hostsUpdated++;
         } catch (hostError) {
@@ -860,6 +1008,8 @@ class SchedulerService {
           data: { lastSyncAt: new Date(), lastSyncStatus: 'failure' },
         });
       }
+
+      webhookService.fire('source_down', { source: 'vcsa', error: (error as Error).message }).catch(() => {});
 
       console.log(`[SysCraft] vCSA sync failed: ${msg}`);
       return { source: 'vcsa', hostsFound, hostsUpdated, errors, duration };

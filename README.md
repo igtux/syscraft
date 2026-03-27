@@ -14,6 +14,8 @@ SysCraft continuously syncs host data from multiple infrastructure systems, dete
 - **Command generation** — `hammer` and `curl` commands ready to paste, grouped per host or per system
 - **Agent compliance** — Tracks required agents (subscription-manager, check-mk-agent, etc.) with baseline scoring
 - **Dead host cleanup** — Recommends removal after configurable unreachable threshold
+- **Host timeline** — Per-host event history (source changes, status transitions, ping flips, recommendations)
+- **Webhook notifications** — Custom HTTP webhooks for critical events (recommendations, source failures, daily summary), with HMAC signing, retry, and templates
 
 ## Stack
 
@@ -99,6 +101,11 @@ Data sources are managed in **Settings > Data Sources** — enable/disable, test
 | `GET /api/hosts/:fqdn` | Full detail with liveness + recommendations |
 | `PUT /api/hosts/:fqdn/os-category` | Manually classify host OS |
 | `GET /api/dashboard` | Aggregated overview |
+| `GET /api/hosts/:fqdn/timeline` | Per-host event history |
+| `GET /api/timeline/recent` | Global recent events |
+| `GET /api/webhooks` | List configured webhooks |
+| `POST /api/webhooks` | Create webhook |
+| `POST /api/webhooks/:id/test` | Test webhook delivery |
 
 ## License
 

@@ -361,6 +361,48 @@ export interface RecommendationListParams {
   status?: string;
 }
 
+// --- Host Event Types ---
+
+export interface HostEvent {
+  id: number;
+  hostFqdn: string;
+  event: string;
+  detail: Record<string, any>;
+  createdAt: string;
+}
+
+// --- Webhook Types ---
+
+export interface WebhookEntry {
+  id: number;
+  name: string;
+  url: string;
+  secret: string;
+  enabled: boolean;
+  events: string[];
+  headers: Record<string, string>;
+  method: string;
+  bodyTemplate: string;
+  retryCount: number;
+  retryDelayMs: number;
+  lastFiredAt: string | null;
+  lastStatus: number | null;
+  logCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WebhookLogEntry {
+  id: number;
+  webhookId: number;
+  event: string;
+  payload: Record<string, any>;
+  statusCode: number | null;
+  response: string;
+  success: boolean;
+  createdAt: string;
+}
+
 // --- Data Source Types ---
 
 export interface DataSourceEntry {
@@ -553,6 +595,49 @@ export async function testSettingsConnection(
     `/settings/test/${adapter}`,
     config
   );
+  return response.data;
+}
+
+// --- Timeline ---
+
+export async function getHostTimeline(fqdn: string, params?: { page?: number; pageSize?: number }): Promise<PaginatedResponse<HostEvent>> {
+  const response = await api.get<PaginatedResponse<HostEvent>>(`/hosts/${encodeURIComponent(fqdn)}/timeline`, { params });
+  return response.data;
+}
+
+export async function getRecentTimeline(limit?: number): Promise<{ data: HostEvent[] }> {
+  const response = await api.get<{ data: HostEvent[] }>('/timeline/recent', { params: { limit } });
+  return response.data;
+}
+
+// --- Webhooks ---
+
+export async function getWebhooks(): Promise<{ data: WebhookEntry[] }> {
+  const response = await api.get<{ data: WebhookEntry[] }>('/webhooks');
+  return response.data;
+}
+
+export async function createWebhook(data: Partial<WebhookEntry>): Promise<WebhookEntry> {
+  const response = await api.post<WebhookEntry>('/webhooks', data);
+  return response.data;
+}
+
+export async function updateWebhook(id: number, data: Partial<WebhookEntry>): Promise<WebhookEntry> {
+  const response = await api.put<WebhookEntry>(`/webhooks/${id}`, data);
+  return response.data;
+}
+
+export async function deleteWebhook(id: number): Promise<void> {
+  await api.delete(`/webhooks/${id}`);
+}
+
+export async function testWebhook(id: number): Promise<{ success: boolean; statusCode: number | null; response: string }> {
+  const response = await api.post<{ success: boolean; statusCode: number | null; response: string }>(`/webhooks/${id}/test`);
+  return response.data;
+}
+
+export async function getWebhookLogs(id: number, params?: { page?: number; pageSize?: number }): Promise<PaginatedResponse<WebhookLogEntry>> {
+  const response = await api.get<PaginatedResponse<WebhookLogEntry>>(`/webhooks/${id}/logs`, { params });
   return response.data;
 }
 

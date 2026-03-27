@@ -68,6 +68,7 @@ model Host {
   agentStatuses    AgentStatus[]
   groupMemberships HostGroupMember[]
   recommendations  Recommendation[]
+  events           HostEvent[]
 }
 
 model HostSource {
@@ -184,4 +185,53 @@ model HostGroupMember {
   host  Host      @relation(fields: [hostFqdn], references: [fqdn], onDelete: Cascade)
 
   @@unique([groupId, hostFqdn])
+}
+
+model HostEvent {
+  id        Int      @id @default(autoincrement())
+  hostFqdn  String
+  event     String
+  detail    Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  host Host @relation(fields: [hostFqdn], references: [fqdn], onDelete: Cascade)
+
+  @@index([hostFqdn])
+  @@index([createdAt])
+}
+
+model Webhook {
+  id            Int       @id @default(autoincrement())
+  name          String
+  url           String
+  secret        String    @default("")
+  enabled       Boolean   @default(true)
+  events        String[]  @default([])
+  headers       Json      @default("{}")
+  method        String    @default("POST")
+  bodyTemplate  String    @default("")
+  retryCount    Int       @default(3)
+  retryDelayMs  Int       @default(5000)
+  lastFiredAt   DateTime?
+  lastStatus    Int?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  logs WebhookLog[]
+}
+
+model WebhookLog {
+  id         Int      @id @default(autoincrement())
+  webhookId  Int
+  event      String
+  payload    Json
+  statusCode Int?
+  response   String   @default("")
+  success    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([createdAt])
 }

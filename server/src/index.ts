@@ -27,6 +27,8 @@ import hostGroupRoutes from './routes/host-groups.js';
 import userRoutes from './routes/users.js';
 import recommendationRoutes from './routes/recommendations.js';
 import sourceRoutes from './routes/sources.js';
+import timelineRoutes from './routes/timeline.js';
+import webhookRoutes from './routes/webhooks.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -112,6 +114,8 @@ app.use('/api/host-groups', hostGroupRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/recommendations', recommendationRoutes);
 app.use('/api/sources', sourceRoutes);
+app.use('/api/timeline', timelineRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // Health check endpoint (no auth)
 app.get('/api/health', (_req, res) => {

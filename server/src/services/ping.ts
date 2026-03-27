@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
+import { hostEventService } from './host-events.js';
 import type { LivenessResult, LivenessSignal } from '../types/index.js';
 
 const prisma = new PrismaClient();
@@ -38,6 +39,13 @@ export async function pingAllHosts(
     for (const r of batchResults) {
       results.set(r.fqdn, r.success);
       try {
+        const existing = await prisma.host.findUnique({ where: { fqdn: r.fqdn }, select: { lastPingSuccess: true } });
+        if (existing && existing.lastPingSuccess !== r.success) {
+          hostEventService.emit(r.fqdn, 'ping_changed', {
+            oldState: existing.lastPingSuccess ? 'responding' : 'timed_out',
+            newState: r.success ? 'responding' : 'timed_out',
+          });
+        }
         await prisma.host.update({
           where: { fqdn: r.fqdn },
           data: {

@@ -223,6 +223,30 @@ export interface VcsaInfrastructure {
   vmPoweredOff: number;
 }
 
+export type HostEventType =
+  | 'host_discovered'
+  | 'source_added'
+  | 'source_removed'
+  | 'status_changed'
+  | 'liveness_changed'
+  | 'os_changed'
+  | 'recommendation_created'
+  | 'recommendation_resolved'
+  | 'recommendation_dismissed'
+  | 'ping_changed'
+  | 'ip_changed'
+  | 'mac_changed';
+
+export type WebhookEventType =
+  | 'recommendation_critical'
+  | 'recommendation_high'
+  | 'source_down'
+  | 'host_stale'
+  | 'host_discovered'
+  | 'liveness_changed'
+  | 'sync_completed'
+  | 'daily_summary';
+
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
