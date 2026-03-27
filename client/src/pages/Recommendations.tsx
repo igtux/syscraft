@@ -83,9 +83,16 @@ export default function Recommendations() {
     refetchInterval: 60_000,
   });
 
+  // Map virtual 'new_hosts' filter to API params
+  const NEW_HOST_TYPES = new Set(['register_satellite', 'add_checkmk', 'add_dns', 'classify_os', 'install_agent']);
+  const apiFilters = { ...filters };
+  if (apiFilters.type === 'new_hosts') {
+    apiFilters.type = ''; // fetch all, filter client-side
+  }
+
   const { data: recsData, isLoading } = useQuery({
-    queryKey: ['recommendations', filters],
-    queryFn: () => getRecommendations(filters),
+    queryKey: ['recommendations', apiFilters],
+    queryFn: () => getRecommendations(apiFilters),
   });
 
   const dismissMut = useMutation({
@@ -104,8 +111,14 @@ export default function Recommendations() {
     },
   });
 
-  const recs = recsData?.data ?? [];
-  const total = recsData?.total ?? 0;
+  let recs = recsData?.data ?? [];
+  let total = recsData?.total ?? 0;
+
+  // Client-side filter for 'new_hosts' virtual type
+  if (filters.type === 'new_hosts') {
+    recs = recs.filter((r) => NEW_HOST_TYPES.has(r.type));
+    total = recs.length;
+  }
 
   // Group by host for host view
   const byHost = new Map<string, Recommendation[]>();
@@ -180,7 +193,7 @@ export default function Recommendations() {
                 return (
                   <button
                     key={sev}
-                    onClick={() => setFilters((f) => ({ ...f, severity: f.severity === sev ? '' : sev, page: 1 }))}
+                    onClick={() => setFilters((f) => ({ ...f, severity: f.severity === sev ? '' : sev, type: '', page: 1 }))}
                     className={cn(
                       'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all border',
                       active
@@ -195,6 +208,26 @@ export default function Recommendations() {
                   </button>
                 );
               })}
+              <span className="w-px h-4 bg-slate-700 mx-1" />
+              <button
+                onClick={() => {
+                  const isActive = filters.type === 'new_hosts';
+                  setFilters((f) => ({
+                    ...f,
+                    type: isActive ? '' : 'new_hosts',
+                    severity: '',
+                    page: 1,
+                  }));
+                }}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all border',
+                  filters.type === 'new_hosts'
+                    ? 'border-blue-500 bg-blue-500/15 text-blue-400'
+                    : 'border-transparent bg-emerald-500/10 text-emerald-400 hover:border-slate-600'
+                )}
+              >
+                New Hosts
+              </button>
             </div>
             <div className="flex items-center gap-2">
               {(filters.type || filters.severity || filters.system || filters.search) && (
